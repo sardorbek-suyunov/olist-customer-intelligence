@@ -55,6 +55,10 @@ dashboard: ## Launch the Streamlit dashboard against the committed snapshot
 replay: ## Emit one slice, e.g. make replay START=2017-03-01 END=2017-04-01
 	python -m ingestion.replay --start $(START) --end $(END)
 
+.PHONY: backfill
+backfill: ## Replay + load the whole coverage window. TARGET=duckdb|bigquery
+	python -m ingestion.backfill --target $(TARGET)
+
 .PHONY: validate-bq
 validate-bq: ## Prove the BigQuery claims: normalize_text executes, ceiling fires
 	python scripts/validate_bigquery.py
