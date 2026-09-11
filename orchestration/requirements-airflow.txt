@@ -1,0 +1,28 @@
+# Airflow runtime. Pinned exactly -- Airflow's dependency tree is wide enough
+# that an unpinned install is not reproducible a month later.
+#
+# Install with the official constraints file, which pins the ~600 transitive
+# dependencies that Airflow was actually tested against:
+#
+#   AIRFLOW_VERSION=3.0.2
+#   PYTHON_VERSION=3.12
+#   pip install -r orchestration/requirements-airflow.txt \
+#     --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+#
+# NOTE: verify these against https://airflow.apache.org/announcements/ and bump
+# deliberately. They are pinned to be reproducible, not to be current; the
+# dag-import CI job is what proves a bump has not broken the DAGs.
+
+apache-airflow==3.0.2
+
+# In Airflow 3, BashOperator and EmptyOperator live in the standard provider
+# rather than airflow.operators.*.
+apache-airflow-providers-standard==1.0.0
+
+# BigQuery target for the scheduled runs.
+apache-airflow-providers-google==14.0.0
+
+# dbt is invoked over the CLI by BashOperator, so it must be present in the
+# same image. Versions match requirements.txt.
+dbt-core==1.12.4
+dbt-bigquery==1.10.1
