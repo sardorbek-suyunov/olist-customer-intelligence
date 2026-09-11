@@ -1,0 +1,87 @@
+# ---------------------------------------------------------------------------
+# Raw data. ~123 MB, and olist_geolocation_dataset.csv alone is ~60 MB.
+# Fetched with `make data`; never committed. Also avoids redistributing a
+# CC BY-NC-SA dataset from this repo.
+# ---------------------------------------------------------------------------
+archive/
+*.csv
+*.csv.gz
+*.zip
+# Seeds and the committed dashboard snapshot are the deliberate exceptions.
+!transform/seeds/*.csv
+!dashboard/data/*.parquet
+
+# ---------------------------------------------------------------------------
+# Credentials. Listed before any GCP key exists on disk, on purpose.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.json
+!.devcontainer/devcontainer.json
+# Provenance for the committed dashboard snapshot -- row counts and build time.
+!dashboard/data/_manifest.json
+!package.json
+!package-lock.json
+credentials/
+secrets/
+service-account*.json
+*-sa.json
+gcp-key*.json
+kaggle.json
+*.pem
+*.key
+!transform/package-lock.yml
+
+# ---------------------------------------------------------------------------
+# dbt
+# ---------------------------------------------------------------------------
+target/
+dbt_packages/
+logs/
+.user.yml
+
+# ---------------------------------------------------------------------------
+# Local warehouses
+# ---------------------------------------------------------------------------
+*.duckdb
+*.duckdb.wal
+*.db
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# ---------------------------------------------------------------------------
+# Airflow local runtime
+# ---------------------------------------------------------------------------
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# ---------------------------------------------------------------------------
+# Claude Code
+# ---------------------------------------------------------------------------
+CLAUDE.md
+CLAUDE.local.md
+.claude/*
+# settings.json is deliberate project config (attribution overrides) and is
+# tracked; everything else under .claude/ is local state.
+!.claude/settings.json
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/extensions.json

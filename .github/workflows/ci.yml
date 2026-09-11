@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # Fast feedback. No data, no credentials, so a fork PR gets a useful answer
+  # in under a minute.
+  lint:
+    name: Lint + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Ruff
+        run: |
+          ruff check analytics dashboard ingestion orchestration scripts
+          ruff format --check analytics dashboard ingestion orchestration scripts
+      - name: Unit tests
+        run: python -m pytest analytics/tests ingestion/tests -q
+      - name: dbt parse
+        working-directory: transform
+        env:
+          DBT_PROFILES_DIR: .
+        run: |
+          dbt deps
+          dbt parse
+
+  # The real gate: every model built and all 67 tests run against DuckDB,
+  # which reads the CSVs in place. No warehouse, no cloud credentials, no
+  # spend -- the whole pipeline is verified on free CI minutes.
+  build:
+    name: dbt build (duckdb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Cache the Olist dataset
+        id: cache-data
+        uses: actions/cache@v4
+        with:
+          path: archive
+          key: olist-dataset-v1
+
+      - name: Download dataset
+        if: steps.cache-data.outputs.cache-hit != 'true'
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          pip install kaggle
+          python scripts/download_data.py
+
+      - name: dbt build
+        working-directory: transform
+        env:
+          DBT_PROFILES_DIR: .
+        run: |
+          dbt deps
+          dbt build --target duckdb
+
+      # Every figure in the README comes from profile_dataset.py. If the data
+      # or the normalization changes and the committed doc/seed were not
+      # regenerated, fail rather than let the documentation drift into fiction.
+      - name: Assert documented figures are current
+        run: |
+          python scripts/profile_dataset.py
+          git diff --exit-code docs/data_profiling.md transform/seeds/normalization_parity.csv \
+            || (echo "::error::Generated files are stale. Run 'make profile' and commit." && exit 1)
+
+      - name: Assert dashboard snapshot is current
+        run: |
+          python scripts/export_snapshot.py
+          git diff --stat --exit-code dashboard/data/ \
+            || echo "::warning::dashboard snapshot differs; run 'make snapshot' and commit"
+
+      - name: Upload dbt artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-target
+          path: transform/target/
+          retention-days: 7
+
+  # Airflow is a heavy install, so it gets its own job and does not slow the
+  # main gate. Proves the DAGs import and keep their schedule invariants.
+  dags:
+    name: DAG integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install Airflow against the official constraints
+        run: |
+          AIRFLOW_VERSION=3.0.2
+          pip install -r orchestration/requirements-airflow.txt \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${{ env.PYTHON_VERSION }}.txt"
+          pip install pytest
+      - name: DAG integrity tests
+        env:
+          AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+        run: python -m pytest orchestration/tests -q

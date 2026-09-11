@@ -1,0 +1,9 @@
+dbt-core==1.12.4
+dbt-duckdb==1.11.0
+duckdb>=1.5.0
+pandas>=2.0
+pyarrow>=17.0
+dlt[duckdb,bigquery]>=1.5.0
+pydantic>=2.0
+pytest>=8.0
+ruff>=0.6.0
