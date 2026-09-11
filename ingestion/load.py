@@ -79,10 +79,9 @@ def load_duckdb(slice_dir: Path, loaded_on: date, db_path: Path) -> dict[str, in
             continue
 
         fq = f"{RAW_SCHEMA}.{table}"
-        source = (
-            f"select *, date '{loaded_on.isoformat()}' as {SLICE_COLUMN} "
-            f"from read_parquet('{parquet.as_posix()}')"
-        )
+        # The column already exists in the file (replay writes it), so this is
+        # a straight copy -- same bytes the BigQuery loader sends.
+        source = f"select * from read_parquet('{parquet.as_posix()}')"
 
         # CTAS on first sight, then delete-then-insert so a retry is a no-op.
         exists = con.execute(
@@ -94,11 +93,14 @@ def load_duckdb(slice_dir: Path, loaded_on: date, db_path: Path) -> dict[str, in
         if not exists:
             con.execute(f"create table {fq} as {source}")
         else:
-            con.execute(f"delete from {fq} where {SLICE_COLUMN} = date '{loaded_on.isoformat()}'")
+            con.execute(
+                f"delete from {fq} where cast({SLICE_COLUMN} as date) = date '{loaded_on.isoformat()}'"
+            )
             con.execute(f"insert into {fq} {source}")
 
         counts[table] = con.execute(
-            f"select count(*) from {fq} where {SLICE_COLUMN} = date '{loaded_on.isoformat()}'"
+            f"select count(*) from {fq} "
+            f"where cast({SLICE_COLUMN} as date) = date '{loaded_on.isoformat()}'"
         ).fetchone()[0]
 
     con.close()
@@ -125,6 +127,13 @@ def load_bigquery(slice_dir: Path, loaded_on: date, dataset: str, project: str) 
     from google.cloud import bigquery
 
     client = bigquery.Client(project=project)
+
+    # The raw dataset is created by whoever loads first, so a fresh project
+    # needs no manual setup step before `make backfill TARGET=bigquery`.
+    dataset_ref = bigquery.Dataset(f"{project}.{dataset}")
+    dataset_ref.location = os.environ.get("BQ_LOCATION", "US")
+    client.create_dataset(dataset_ref, exists_ok=True)
+
     counts: dict[str, int] = {}
 
     for stem, table in TABLE_MAP.items():

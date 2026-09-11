@@ -35,6 +35,8 @@ DATA_COVERAGE_START = date(2016, 9, 4)
 DATA_COVERAGE_END = date(2018, 10, 17)
 
 # Child tables and the column that ties them back to an order.
+SLICE_COLUMN = "_slice_date"
+
 ORDER_CHILDREN = {
     "order_items": "order_id",
     "order_payments": "order_id",
@@ -94,10 +96,16 @@ def write_slice(tables: dict[str, pd.DataFrame], out_dir: Path, logical_date: da
 
     manifest: dict[str, int] = {}
     for name, frame in tables.items():
+        # The slice carries its own date. Both loaders then just copy the file
+        # as-is: BigQuery partitions on this column, DuckDB scopes its
+        # delete-then-insert to it. Adding it in one loader and not the other
+        # is how the BigQuery path ended up with no field to partition on.
+        stamped = frame.copy()
+        stamped[SLICE_COLUMN] = pd.Timestamp(logical_date)
         # Overwrite rather than append: re-running a slice must be a no-op,
         # not a duplication.
-        frame.to_parquet(partition / f"{name}.parquet", index=False)
-        manifest[name] = len(frame)
+        stamped.to_parquet(partition / f"{name}.parquet", index=False)
+        manifest[name] = len(stamped)
 
     (partition / "_manifest.json").write_text(
         json.dumps(

@@ -28,6 +28,10 @@ PARITY_SEED = ROOT / "transform" / "seeds" / "normalization_parity.csv"
 
 SCD_ATTRIBUTES = ["customer_zip_code_prefix", "customer_city", "customer_state"]
 
+# Standalone spacing accents that act as punctuation in this data. Must match
+# spacing_accent_class() in transform/macros/normalize_text.sql exactly.
+SPACING_ACCENTS = re.compile("[¨¯´¸ˆ˜]")
+
 # Every distinct location string in the source, used to prove that this
 # module's normalize() and the normalize_text dbt macro agree exactly.
 PARITY_COLUMNS = [
@@ -48,9 +52,12 @@ def normalize(value: object) -> object:
     '4º centenario' to '4o centenario' and 'maceia³' to 'maceia3',
     inventing characters the name never had.
 
-    Non-ASCII characters are DELETED (via the ascii-ignore encode), while
-    surviving punctuation is REPLACED with a space. That asymmetry is
-    intentional -- see the macro docstring.
+    Standalone spacing accents (U+00B4 ACUTE and friends) become a SPACE
+    before the ascii-ignore encode deletes everything else non-ASCII. Without
+    that step 'santa barbara d´oeste' collapses to '...doeste', which
+    fails to merge with the correctly spelled "d'oeste" and splits one seller
+    city into two. Other non-ASCII is DELETED; surviving punctuation becomes a
+    space. See the macro docstring for why the asymmetry is deliberate.
 
     assert_normalize_macro_matches_python proves this stays identical to the
     SQL implementation in the target's own dialect.
@@ -59,7 +66,8 @@ def normalize(value: object) -> object:
         return value
     decomposed = unicodedata.normalize("NFD", str(value))
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    ascii_only = stripped.encode("ascii", "ignore").decode()
+    spaced = SPACING_ACCENTS.sub(" ", stripped)
+    ascii_only = spaced.encode("ascii", "ignore").decode()
     folded = re.sub(r"[^a-z0-9 ]+", " ", ascii_only.lower())
     return re.sub(r"\s+", " ", folded).strip() or None
 

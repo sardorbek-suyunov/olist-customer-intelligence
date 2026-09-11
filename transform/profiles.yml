@@ -20,7 +20,24 @@ olist_intelligence:
       path: "{{ env_var('DBT_DUCKDB_PATH', 'olist.duckdb') }}"
       threads: 4
 
+    # Default BigQuery target: Application Default Credentials, i.e. whatever
+    # `gcloud auth application-default login` set up. No keyfile on disk, which
+    # is both easier locally and one less secret to leak.
     bigquery:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID', '') }}"
+      dataset: "{{ env_var('BQ_DATASET', 'olist') }}"
+      location: "{{ env_var('BQ_LOCATION', 'US') }}"
+      threads: 8
+      priority: interactive
+      maximum_bytes_billed: 2147483648   # 2 GiB
+      job_execution_timeout_seconds: 600
+      job_retries: 1
+
+    # Keyfile variant, for CI or a deployed scheduler where no human runs
+    # `gcloud auth`. Same ceilings.
+    bigquery_sa:
       type: bigquery
       method: service-account
       project: "{{ env_var('GCP_PROJECT_ID', '') }}"

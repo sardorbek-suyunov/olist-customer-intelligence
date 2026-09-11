@@ -43,14 +43,14 @@ no snapshot strategy can produce a second version there. Both are Type 1 by nece
 - ...but it rewrites **450** rows across **52** legitimately punctuated city names
   (`alta floresta d'oeste`, `alvorada d'oeste`, `aparecida d'oeste`). The dimension therefore diffs on the normalized
   value and **displays the raw one**.
-- Sellers, distinct cities raw vs normalized: **611 vs 604** -> **7 genuine variants merged**.
+- Sellers, distinct cities raw vs normalized: **611 vs 603** -> **8 genuine variants merged**.
   Normalization is load-bearing here.
 
 | Raw variants | Canonical |
 |---|---|
 | `ferraz de  vasconcelos`, `ferraz de vasconcelos` | `ferraz de vasconcelos` |
 | `rio de janeiro / rio de janeiro`, `rio de janeiro \rio de janeiro` | `rio de janeiro rio de janeiro` |
-| `santa barbara d oeste`, `santa barbara d'oeste` | `santa barbara d oeste` |
+| `santa barbara d oeste`, `santa barbara d'oeste`, `santa barbara d´oeste` | `santa barbara d oeste` |
 | `sao  jose dos pinhais`, `sao jose dos pinhais` | `sao jose dos pinhais` |
 | `sao  paulo`, `sao paulo`, `são paulo` | `sao paulo` |
 | `sao paulo - sp`, `sao paulo sp` | `sao paulo sp` |
