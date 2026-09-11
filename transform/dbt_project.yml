@@ -1,0 +1,30 @@
+name: olist_intelligence
+version: "1.0.0"
+config-version: 2
+
+profile: olist_intelligence
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Floor for the first SCD2 version. Deliberately earlier than any Olist
+  # order (first purchase is 2016-09-04) so a late-arriving, backdated order
+  # still resolves to version 1 instead of falling through the as-of join.
+  scd_valid_from_floor: "1900-01-01 00:00:00"
+  scd_valid_to_ceiling: "9999-12-31 23:59:59"
+
+models:
+  olist_intelligence:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: ephemeral
+    marts:
+      +materialized: table
+      +schema: marts

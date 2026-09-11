@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: stg_customers
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: customer_unique_id
+        data_tests: [not_null]
+
+  - name: stg_orders
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - unique   # 1:1 with order_id -- this is the fact that kills the snapshot approach
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: order_purchase_timestamp
+        data_tests: [not_null]
+
+  - name: stg_order_items
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [order_id, order_item_id]
+    columns:
+      - name: product_id
+        data_tests:
+          - relationships: {to: ref('stg_products'), field: product_id}
+      - name: seller_id
+        data_tests:
+          - relationships: {to: ref('stg_sellers'), field: seller_id}
+
+  - name: stg_products
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+
+  - name: stg_sellers
+    columns:
+      - name: seller_id
+        data_tests: [unique, not_null]
+
+  - name: stg_order_reviews
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [review_id, order_id]
+
+  - name: stg_geolocation
+    columns:
+      - name: zip_code_prefix
+        data_tests: [unique, not_null]

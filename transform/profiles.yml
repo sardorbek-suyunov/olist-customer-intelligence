@@ -1,0 +1,49 @@
+# Two targets against one codebase:
+#   duckdb   - local dev + CI. Reads the CSVs in place, no credentials, ~5s build.
+#   bigquery - the deployed warehouse. Partitioned, clustered, and capped.
+#
+# maximum_bytes_billed is set on EVERY target, including the ones a human runs
+# by hand. It is enforced by BigQuery itself: a job whose planned scan exceeds
+# the ceiling is rejected before it runs, so a careless `select *` on an
+# unpartitioned scan fails loudly instead of quietly spending the free tier.
+#
+# Sizing: the whole dataset is ~120 MB. 2 GB is ~16x headroom for the largest
+# real build and still 0.2% of the 1 TB/month free query allowance, so a
+# runaway query cannot burn the month.
+
+olist_intelligence:
+  target: duckdb
+  outputs:
+
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'olist.duckdb') }}"
+      threads: 4
+
+    bigquery:
+      type: bigquery
+      method: service-account
+      project: "{{ env_var('GCP_PROJECT_ID', '') }}"
+      dataset: "{{ env_var('BQ_DATASET', 'olist') }}"
+      location: "{{ env_var('BQ_LOCATION', 'US') }}"
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS', '') }}"
+      threads: 8
+      priority: interactive
+      maximum_bytes_billed: 2147483648   # 2 GiB
+      job_execution_timeout_seconds: 600
+      job_retries: 1
+
+    # Used by the scheduled Airflow run. Batch priority so a queued job waits
+    # rather than competing for interactive slots; same hard ceiling.
+    bigquery_scheduled:
+      type: bigquery
+      method: service-account
+      project: "{{ env_var('GCP_PROJECT_ID', '') }}"
+      dataset: "{{ env_var('BQ_DATASET', 'olist') }}"
+      location: "{{ env_var('BQ_LOCATION', 'US') }}"
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS', '') }}"
+      threads: 4
+      priority: batch
+      maximum_bytes_billed: 2147483648   # 2 GiB
+      job_execution_timeout_seconds: 1800
+      job_retries: 2

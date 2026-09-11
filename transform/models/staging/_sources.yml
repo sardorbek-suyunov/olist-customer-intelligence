@@ -1,0 +1,40 @@
+version: 2
+
+sources:
+  - name: olist_raw
+    description: >
+      Brazilian E-Commerce Public Dataset by Olist (Kaggle, CC BY-NC-SA 4.0).
+      On duckdb the CSVs are read in place via external_location; on bigquery
+      the same table names resolve to the landed raw dataset.
+    meta:
+      external_location: "read_csv_auto('{{ env_var('OLIST_RAW_DIR', '../archive') }}/{name}.csv', header=true, sample_size=-1)"
+    schema: "{{ env_var('BQ_RAW_DATASET', 'olist_raw') }}"
+    tables:
+      - name: olist_customers_dataset
+        description: One row per order-scoped customer_id. NOT a customer master.
+        columns:
+          - name: customer_id
+            description: Order-scoped surrogate. Unique per row, never repeats.
+            data_tests: [unique, not_null]
+          - name: customer_unique_id
+            description: The true person-level key. 96,096 distinct.
+            data_tests: [not_null]
+      - name: olist_orders_dataset
+        columns:
+          - name: order_id
+            data_tests: [unique, not_null]
+          - name: customer_id
+            data_tests: [unique, not_null]
+      - name: olist_order_items_dataset
+      - name: olist_order_payments_dataset
+      - name: olist_order_reviews_dataset
+      - name: olist_products_dataset
+        columns:
+          - name: product_id
+            data_tests: [unique, not_null]
+      - name: olist_sellers_dataset
+        columns:
+          - name: seller_id
+            data_tests: [unique, not_null]
+      - name: olist_geolocation_dataset
+      - name: product_category_name_translation
