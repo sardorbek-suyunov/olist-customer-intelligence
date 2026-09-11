@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: |
+      Type 2 customer dimension at customer_unique_id grain, hand-built because
+      the source natural key (customer_id) is order-scoped and never repeats,
+      which makes `dbt snapshot` structurally unable to record history here.
+      96,096 current + 259 historical = 96,355 rows.
+    columns:
+      - name: customer_sk
+        description: Surrogate key, md5(customer_unique_id | version_number).
+        data_tests: [unique, not_null]
+      - name: customer_unique_id
+        description: Person-level natural key. Repeats across versions.
+        data_tests: [not_null]
+      - name: version_number
+        description: 1-based, ordered by (order_purchase_timestamp, customer_id).
+        data_tests: [not_null]
+      - name: valid_from
+        description: Inclusive lower bound. Floored to 1900-01-01 for version 1.
+        data_tests: [not_null]
+      - name: valid_to
+        description: EXCLUSIVE upper bound. 9999-12-31 for the current version.
+        data_tests: [not_null]
+      - name: is_current
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [customer_unique_id, version_number]
+
+  - name: fct_orders
+    description: |
+      One row per order, joined to the customer dimension version valid at
+      purchase time. A naive current-row join mis-attributes 272 of 99,441
+      orders (0.274%), 43 of them to the wrong state.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_sk
+      - name: order_status
+        data_tests:
+          - accepted_values:
+              values: [delivered, shipped, canceled, unavailable, invoiced, processing, created, approved]
+
+  - name: dim_products
+    description: Type 1. One observation per product_id; no price column exists on the source.
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+
+  - name: dim_sellers
+    description: Type 1. Normalization collapses 611 raw city strings to 603.
+    columns:
+      - name: seller_id
+        data_tests: [unique, not_null]
