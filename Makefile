@@ -55,6 +55,10 @@ dashboard: ## Launch the Streamlit dashboard against the committed snapshot
 replay: ## Emit one slice, e.g. make replay START=2017-03-01 END=2017-04-01
 	python -m ingestion.replay --start $(START) --end $(END)
 
+.PHONY: validate-bq
+validate-bq: ## Prove the BigQuery claims: normalize_text executes, ceiling fires
+	python scripts/validate_bigquery.py
+
 .PHONY: docs
 docs: ## Build and serve the dbt documentation site
 	$(DBT) docs generate --target $(TARGET)
