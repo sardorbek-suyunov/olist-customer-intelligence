@@ -110,7 +110,12 @@ def load_duckdb(slice_dir: Path, loaded_on: date, db_path: Path) -> dict[str, in
 # ---------------------------------------------------------------------------
 def load_bigquery(slice_dir: Path, loaded_on: date, dataset: str, project: str) -> dict[str, int]:
     """
-    Load into date-partitioned raw tables.
+    Load into date-partitioned raw tables in the RAW dataset.
+
+    Reads BQ_RAW_DATASET, not BQ_DATASET. The two are different datasets and
+    conflating them is a silent failure: raw tables would land in the dataset
+    dbt writes models to, while sources.yml keeps looking in the raw one, and
+    the build fails with a confusing "table not found".
 
     Uses WRITE_TRUNCATE against a partition decorator (`table$YYYYMMDD`), which
     replaces exactly that partition atomically -- the BigQuery-native way to
@@ -189,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
             LOG.error("GCP_PROJECT_ID must be set for the bigquery target")
             return 2
         counts = load_bigquery(
-            slice_dir, loaded_on, os.environ.get("BQ_DATASET", "olist_raw"), project
+            slice_dir, loaded_on, os.environ.get("BQ_RAW_DATASET", "olist_raw"), project
         )
     else:
         counts = load_duckdb(slice_dir, loaded_on, args.duckdb_path)

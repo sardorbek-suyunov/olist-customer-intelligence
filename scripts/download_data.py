@@ -11,6 +11,7 @@ Requires Kaggle credentials, either as environment variables
 
 from __future__ import annotations
 
+import csv
 import sys
 import zipfile
 from pathlib import Path
@@ -19,16 +20,20 @@ DATASET = "olistbr/brazilian-ecommerce"
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "archive"
 
+# Row counts, NOT line counts. review_comment_message contains embedded
+# newlines inside quoted fields, so `wc -l` reports 104,719 for a file that
+# holds 99,224 rows. Verifying against the line count would reject a perfectly
+# good download.
 EXPECTED = {
     "olist_customers_dataset.csv": 99_441,
     "olist_geolocation_dataset.csv": 1_000_163,
     "olist_order_items_dataset.csv": 112_650,
     "olist_order_payments_dataset.csv": 103_886,
-    "olist_order_reviews_dataset.csv": 104_719,
+    "olist_order_reviews_dataset.csv": 99_224,
     "olist_orders_dataset.csv": 99_441,
     "olist_products_dataset.csv": 32_951,
     "olist_sellers_dataset.csv": 3_095,
-    "product_category_name_translation.csv": 70,
+    "product_category_name_translation.csv": 71,
 }
 
 
@@ -41,8 +46,9 @@ def verify() -> bool:
             print(f"  MISSING  {name}")
             ok = False
             continue
-        with path.open(encoding="utf-8") as handle:
-            actual = sum(1 for _ in handle) - 1
+        # csv.reader, not a line count -- see the note on EXPECTED above.
+        with path.open(encoding="utf-8", newline="") as handle:
+            actual = sum(1 for _ in csv.reader(handle)) - 1
         status = "ok" if actual == rows else "ROW COUNT MISMATCH"
         if actual != rows:
             ok = False
