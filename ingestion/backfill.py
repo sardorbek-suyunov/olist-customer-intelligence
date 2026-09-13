@@ -60,6 +60,50 @@ def windows(start: date, end: date) -> list[tuple[date, date]]:
     return result
 
 
+def verify(plan: list[tuple[date, date]], args) -> int:
+    """
+    Ask the warehouse which windows are complete.
+
+    Delegates to the loader's own --verify rather than reimplementing the
+    lookup, so there is one definition of what "complete" means. With the marker
+    in place this is the whole completeness story: no reconciliation arithmetic,
+    no comparing counts across five tables -- a window is done if it says so.
+    """
+    incomplete: list[date] = []
+
+    for first, _ in plan:
+        slice_dir = args.slices / f"purchase_date={first.isoformat()}"
+        if not slice_dir.exists():
+            continue
+
+        verify_argv = [
+            "--slice",
+            str(slice_dir),
+            "--target",
+            args.target,
+            "--verify",
+            "--log-level",
+            "WARNING",
+        ]
+        if args.duckdb_path:
+            verify_argv += ["--duckdb-path", str(args.duckdb_path)]
+        if load_module.main(verify_argv) != 0:
+            incomplete.append(first)
+
+    if incomplete:
+        LOG.error(
+            "%s of %s windows incomplete: %s",
+            len(incomplete),
+            len(plan),
+            ", ".join(d.isoformat() for d in incomplete),
+        )
+        LOG.error("Re-run the backfill; loading is idempotent and will repair them.")
+        return 1
+
+    LOG.info("All %s windows complete on %s.", len(plan), args.target)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -71,6 +115,11 @@ def main(argv: list[str] | None = None) -> int:
         default=replay_module.DATA_COVERAGE_END + timedelta(days=1),
     )
     parser.add_argument("--target", default="duckdb")
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Check every window's completion marker; load nothing.",
+    )
     parser.add_argument("--slices", type=Path, default=ROOT / "data" / "slices")
     parser.add_argument("--duckdb-path", type=Path, default=None)
     parser.add_argument("--log-level", default="INFO")
@@ -82,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
 
     plan = windows(args.start, args.end)
     monthly = sum(1 for a, b in plan if (b - a).days > 1)
+
+    if args.verify:
+        return verify(plan, args)
+
     LOG.info(
         "Backfilling %s: %s windows (%s monthly + %s daily)",
         args.target,

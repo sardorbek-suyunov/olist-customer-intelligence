@@ -7,7 +7,7 @@ from datetime import date
 import duckdb
 import pytest
 
-from ingestion.load import RAW_SCHEMA, main, slice_date_of
+from ingestion.load import RAW_SCHEMA, main, raw_dataset, slice_date_of
 from ingestion.replay import RAW, slice_window, write_slice
 
 pytestmark = pytest.mark.skipif(
@@ -81,3 +81,23 @@ def test_slice_date_parsed_from_partition_name(tmp_path) -> None:
     assert slice_date_of(tmp_path / "purchase_date=2017-03-01") == date(2017, 3, 1)
     with pytest.raises(ValueError):
         slice_date_of(tmp_path / "not-a-partition")
+
+
+def test_raw_and_mart_datasets_must_be_distinct(monkeypatch) -> None:
+    """
+    Two env vars pointing at one dataset is not a split.
+
+    Conflating them is a silent failure -- raw tables land where dbt writes
+    models while sources.yml keeps looking elsewhere -- and it also makes the
+    dashboard service account impossible to scope to marts alone.
+    """
+    monkeypatch.setenv("BQ_RAW_DATASET", "olist")
+    monkeypatch.setenv("BQ_DATASET", "olist")
+    with pytest.raises(SystemExit, match="must be distinct"):
+        raw_dataset()
+
+
+def test_raw_dataset_defaults_are_already_distinct(monkeypatch) -> None:
+    monkeypatch.delenv("BQ_RAW_DATASET", raising=False)
+    monkeypatch.delenv("BQ_DATASET", raising=False)
+    assert raw_dataset() == "olist_raw"

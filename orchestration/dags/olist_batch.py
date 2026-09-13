@@ -119,6 +119,22 @@ def build_pipeline(dag: DAG) -> None:
             ),
         )
 
+        # A load is five tables with no transaction spanning them, so a task
+        # killed partway leaves the slice torn. The loader writes a completion
+        # marker only once every table has landed; this asserts the marker is
+        # there before dbt is allowed to build on the slice. Retrying the load
+        # is the repair, which is why this sits between the two.
+        verify = BashOperator(
+            task_id="verify_slice_complete",
+            bash_command=(
+                f"cd {PROJECT_ROOT} && "
+                "python -m ingestion.load "
+                "--slice data/slices/purchase_date={{ data_interval_start | ds }} "
+                f"--target {DBT_TARGET} "
+                "--verify"
+            ),
+        )
+
         # `dbt build` runs models and tests interleaved, so a failing test
         # stops its downstream models rather than letting bad data propagate.
         transform = BashOperator(
@@ -133,7 +149,7 @@ def build_pipeline(dag: DAG) -> None:
 
         finish = EmptyOperator(task_id="finish", trigger_rule="none_failed_min_one_success")
 
-        start >> gate >> replay >> load >> transform >> finish
+        start >> gate >> replay >> load >> verify >> transform >> finish
 
 
 backfill_monthly = DAG(

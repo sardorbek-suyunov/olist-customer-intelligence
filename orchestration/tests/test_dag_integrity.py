@@ -79,6 +79,20 @@ def test_coverage_gate_precedes_ingestion(dagbag: DagBag, dag_id: str) -> None:
 
 
 @pytest.mark.parametrize("dag_id", sorted(EXPECTED_DAGS))
+def test_dbt_cannot_build_on_an_unverified_slice(dagbag: DagBag, dag_id: str) -> None:
+    """
+    A load is five tables with no transaction spanning them, so a task killed
+    partway leaves the slice torn. If the completeness gate ever stops being
+    upstream of dbt, the build would model a half-loaded slice and every test
+    downstream would pass on it -- the failure is silent, which is why it is
+    asserted structurally rather than trusted to review.
+    """
+    dag = dagbag.get_dag(dag_id)
+    transform = dag.get_task("dbt_build")
+    assert "verify_slice_complete" in {t.task_id for t in transform.upstream_list}
+
+
+@pytest.mark.parametrize("dag_id", sorted(EXPECTED_DAGS))
 def test_tasks_have_retries(dagbag: DagBag, dag_id: str) -> None:
     dag = dagbag.get_dag(dag_id)
     for task in dag.tasks:

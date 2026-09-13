@@ -59,6 +59,10 @@ replay: ## Emit one slice, e.g. make replay START=2017-03-01 END=2017-04-01
 backfill: ## Replay + load the whole coverage window. TARGET=duckdb|bigquery
 	python -m ingestion.backfill --target $(TARGET)
 
+.PHONY: verify-slices
+verify-slices: ## Check every window's completion marker. TARGET=duckdb|bigquery
+	python -m ingestion.backfill --target $(TARGET) --verify
+
 .PHONY: validate-bq
 validate-bq: ## Prove the BigQuery claims: normalize_text executes, ceiling fires
 	python scripts/validate_bigquery.py
