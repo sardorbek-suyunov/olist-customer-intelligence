@@ -25,9 +25,14 @@ class Price:
     note: str = ""
 
 
-# Keyed on the family prefix, matched longest-first, because the API's model ids
-# carry suffixes (-preview, -001) that the pricing page does not.
-FAMILIES: dict[str, Price] = {
+# Keyed on the EXACT model id, not a prefix.
+#
+# Prefix matching was the first attempt and it silently mispriced every variant:
+# `gemini-3.5-flash-lite` starts with `gemini-3.5-flash`, so it inherited the
+# full-size rate and the cost log would have carried a wrong number that looked
+# entirely plausible. An unpriced model is visible -- it logs 0.00 and warns --
+# where a wrongly-priced one is not.
+MODELS: dict[str, Price] = {
     "gemini-3.8-flash": Price(0.75, 3.75, 0.375, 1.875, "doubles 2027-01-01"),
     "gemini-3.7-flash": Price(0.75, 3.75, 0.375, 1.875, "doubles 2027-01-01"),
     "gemini-3.5-flash": Price(1.50, 9.00, 0.75, 4.50),
@@ -36,10 +41,7 @@ FAMILIES: dict[str, Price] = {
 
 
 def price_for(model: str) -> Price | None:
-    for prefix in sorted(FAMILIES, key=len, reverse=True):
-        if model.startswith(prefix):
-            return FAMILIES[prefix]
-    return None
+    return MODELS.get(model)
 
 
 def cost_usd(model: str, input_tokens: int, output_tokens: int, batch: bool = False) -> float:

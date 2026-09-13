@@ -43,6 +43,25 @@ class GeminiError(RuntimeError):
     pass
 
 
+def _decode(raw: bytes) -> str:
+    """
+    Decode .env whatever encoding the shell that wrote it chose.
+
+    `echo "KEY=..." > .env` in Windows PowerShell 5.1 writes UTF-16 LE with a
+    BOM, so a straight utf-8 read dies on byte 0xff before it ever reaches the
+    key. Assuming utf-8 here would make the documented setup step fail on the
+    platform this repository is developed on.
+    """
+    for bom, encoding in (
+        (b"\xff\xfe", "utf-16"),  # not utf-16-le: that leaves the BOM as U+FEFF
+        (b"\xfe\xff", "utf-16"),  # glued to the first variable's NAME
+        (b"\xef\xbb\xbf", "utf-8-sig"),
+    ):
+        if raw.startswith(bom):
+            return raw.decode(encoding).lstrip("﻿")
+    return raw.decode("utf-8").lstrip("﻿")
+
+
 def load_env() -> None:
     """
     Read .env into the environment without echoing it anywhere.
@@ -52,7 +71,7 @@ def load_env() -> None:
     """
     if not ENV_FILE.exists():
         return
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+    for line in _decode(ENV_FILE.read_bytes()).splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

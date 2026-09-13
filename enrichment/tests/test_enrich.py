@@ -168,6 +168,17 @@ def test_every_merge_parent_is_a_real_aspect() -> None:
 # ---------------------------------------------------------------------------
 # pricing
 # ---------------------------------------------------------------------------
+def test_variant_models_are_not_priced_as_their_full_size_sibling() -> None:
+    """
+    Prefix matching gave `gemini-3.5-flash-lite` the full-size rate, and the cost
+    log would have carried a wrong number that looked entirely plausible. An
+    unpriced model logs 0.00 and warns; a mispriced one says nothing.
+    """
+    assert price_for("gemini-3.5-flash") is not None
+    assert price_for("gemini-3.5-flash-lite") is None
+    assert price_for("gemini-2.5-flash-image") is None
+
+
 def test_batch_pricing_is_half_of_standard() -> None:
     model = "gemini-3.7-flash"
     standard = cost_usd(model, 1_000_000, 1_000_000, batch=False)
