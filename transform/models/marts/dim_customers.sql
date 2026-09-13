@@ -19,6 +19,24 @@
 
     Clustering on customer_unique_id is the right tool at this size: it is free,
     has no minimum, and is what the as-of join actually probes on.
+
+    AND NOT INCREMENTAL EITHER, which is a separate decision with a separate
+    reason. fct_orders is incremental; this is not.
+
+    A Type 2 dimension is not additive. Adding one observation can close the
+    interval on a version that is already written, and a backdated observation
+    can split an existing interval in two -- so the correct unit of work is the
+    customer's whole history, not the new rows. An incremental strategy keyed on
+    customer_sk would append version rows while leaving the previous version's
+    valid_to stale, and the result would pass every row-count check while
+    silently overlapping. assert_no_overlapping_customer_versions exists because
+    that failure is invisible to counting.
+
+    Recomputing the whole dimension makes overlap impossible by construction,
+    and the table is single-digit MB. The rule of thumb: incremental where the
+    work is genuinely additive, full refresh where a new row can change an old
+    one. dim_products and dim_sellers are Type 1 over a single observation per
+    key, so the same conclusion arrives more cheaply.
 #}
 
 /*

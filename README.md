@@ -225,6 +225,44 @@ and the decision gets revisited against real numbers instead of a stale comment.
 
 ---
 
+### Incremental where the work is additive
+
+`fct_orders` is the only incremental model, and the asymmetry is the point.
+
+| | Strategy | Why |
+|---|---|---|
+| `fct_orders` | `merge` on BigQuery, `delete+insert` on DuckDB, keyed on `order_id` | The fact table is the largest object, it grows without bound, and a window of orders is genuinely additive. Reprocessing a window converges instead of appending. |
+| `dim_customers` | Full refresh | A Type 2 dimension is **not** additive. One new observation can close an interval that is already written, and a backdated one can split an interval in two — so the correct unit of work is the customer's whole history, not the new rows. |
+| `dim_products`, `dim_sellers` | Full refresh | Type 1 over a single observation per key. Same conclusion, arrived at more cheaply. |
+
+The rule: **incremental where the work is additive, full refresh where a new row
+can change an old one.** An incremental `dim_customers` keyed on `customer_sk`
+would append version rows while leaving the previous version's `valid_to` stale,
+and that passes every row-count check while silently overlapping — which is why
+`assert_no_overlapping_customer_versions` exists at all.
+
+The window comes from the `run_date` var the DAG already passes, so the scheduler
+and a hand-run produce the same filter. The bound is half-open on the low side
+only: a late arrival for a prior window is handled by re-running *that* window,
+and the merge restates the row. Bounding the top would mean a re-run silently
+skipped everything after it.
+
+Proven rather than asserted, against a modified copy of the source — the extract
+is static, so a genuine late arrival had to be injected:
+
+```
+claim 1  re-run window twice        rows=99,441  duplicates=0
+claim 2  late order, prior window   rows=99,442  inserted exactly once
+claim 2b re-run that window again   rows=99,442  still exactly once
+claim 3  order restated             rows=99,442  updated in place, status='canceled'
+```
+
+Each step ran a full `dbt build`, so the grain test reconciled the fact against
+source orders every time. On BigQuery the `MERGE` path was exercised separately
+and is idempotent over 96.5k merged rows.
+
+---
+
 ## Validation status
 
 Honest accounting of what has actually been executed. Both columns have now run;
@@ -239,6 +277,7 @@ nothing below is inferred from a compile.
 | Slice reload leaves row counts unchanged | ✅ executed | ✅ executed |
 | `maximum_bytes_billed` rejects an oversized query | n/a | ✅ **observed firing** |
 | One DAG window executed end to end | ✅ executed | ⬜ not yet run |
+| Incremental `fct_orders` re-run leaves no duplicates | ✅ executed (delete+insert) | ✅ executed (merge) |
 
 The SCD2 figures come out identical on both engines: 259 change events
 across 252 customers, 96,096 current +

@@ -1,11 +1,35 @@
 {{ config(
-    materialized='table',
+    materialized='incremental',
+    unique_key='order_id',
+    incremental_strategy=('merge' if target.type == 'bigquery' else 'delete+insert'),
+    on_schema_change='fail',
     partition_by=(
         {'field': 'order_purchase_timestamp', 'data_type': 'timestamp', 'granularity': 'month'}
         if target.type == 'bigquery' else none
     ),
     cluster_by=(['customer_sk', 'order_status'] if target.type == 'bigquery' else none)
 ) }}
+
+{#
+    THE ONE INCREMENTAL MODEL, on purpose.
+
+    A backfill is 25 monthly windows and every one of them rebuilt the entire
+    mart. At 120 MB that costs nothing, which is an honest reason not to care and
+    a poor reason not to have decided. So the decision is made once, on the model
+    where it actually matters, and written down for the ones where it does not.
+
+    fct_orders is the fact table: it is the largest object here, it grows without
+    bound as orders accumulate, and a window of orders is genuinely additive. It
+    is keyed on order_id and merged, so reprocessing a window converges rather
+    than appends.
+
+    Strategy is dispatched because the engines do not agree on one:
+      bigquery  merge         -- MERGE on order_id, native and atomic
+      duckdb    delete+insert -- delete the keys in the batch, then insert
+
+    Both are idempotent and both restate a changed row rather than duplicating
+    it, which is what a late arrival needs. See the note below on dimensions.
+#}
 
 {#
     MONTHLY partitions, not daily. The extract covers 2016-09-04 .. 2018-10-17,
@@ -44,6 +68,32 @@
 with orders as (
 
     select * from {{ ref('stg_orders') }}
+
+    {% if is_incremental() %}
+    {#
+        The run's window. `run_date` is what the DAG already passes to
+        `dbt build --vars`, so the scheduler and a hand-run converge on the same
+        filter -- the same property ingestion/backfill.py promises.
+
+        A half-open lower bound only, not a bounded window: a late-arriving row
+        for a prior window is handled by re-running THAT window, and the merge on
+        order_id restates it. Bounding the top would mean a re-run silently
+        skipped everything after it.
+
+        Without --vars, fall back to the high-water mark already in the table.
+        That is the safe default for an ad-hoc `dbt build`, and it is strictly
+        weaker: it cannot pick up a late arrival older than the mark, which is
+        exactly why the DAG passes run_date instead of relying on it.
+    #}
+    where order_purchase_timestamp >= (
+        {%- if var('run_date', none) %}
+        cast('{{ var("run_date") }}' as timestamp)
+        {%- else %}
+        select coalesce(max(order_purchase_timestamp), cast('1900-01-01' as timestamp))
+        from {{ this }}
+        {%- endif %}
+    )
+    {% endif %}
 
 ),
 
