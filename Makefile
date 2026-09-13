@@ -67,6 +67,10 @@ readme: ## Render README.md from README.template.md and the measured figures
 readme-check: ## Fail if the committed README disagrees with the figures
 	python scripts/render_readme.py --check
 
+.PHONY: load-static
+load-static: ## Load the non-sliced reference tables. TARGET=duckdb|bigquery
+	python -m ingestion.load_static --target $(TARGET)
+
 .PHONY: verify-slices
 verify-slices: ## Check every window's completion marker. TARGET=duckdb|bigquery
 	python -m ingestion.backfill --target $(TARGET) --verify

@@ -52,6 +52,29 @@ def load_duckdb(db_path: Path) -> dict[str, int]:
 
 
 def load_bigquery(dataset: str, project: str) -> dict[str, int]:
+    """
+    Load via a DataFrame, so column names come from the file rather than from
+    BigQuery's guess about it.
+
+    This was CSV + autodetect + skip_leading_rows=1, and it silently mangled
+    `product_category_name_translation` into `string_field_0` / `string_field_1`.
+    BigQuery's CSV autodetect infers a header by finding a first row whose types
+    differ from the rest -- which works for `olist_products_dataset`, where the
+    body has numeric columns, and cannot work for a table that is strings all the
+    way down. It skipped the header as instructed and then had no names to use.
+
+    `olist_products_dataset` loading correctly is what made this hard to see: the
+    same code produced right answers for three tables and a wrong one for the
+    fourth, and nothing failed until stg_products joined against it.
+
+    The translation CSV also carries a UTF-8 BOM, which would have prefixed the
+    first column name with U+FEFF even had detection worked. utf-8-sig consumes
+    it; DuckDB's read_csv_auto already did.
+
+    Parquet is what the slice path sends, so both loaders now hand BigQuery a
+    file that carries its own schema and neither depends on inference.
+    """
+    import pandas as pd
     from google.cloud import bigquery
 
     client = bigquery.Client(project=project)
@@ -61,22 +84,22 @@ def load_bigquery(dataset: str, project: str) -> dict[str, int]:
 
     counts: dict[str, int] = {}
     for table in STATIC_TABLES:
-        path = RAW_DIR / f"{table}.csv"
+        frame = pd.read_csv(RAW_DIR / f"{table}.csv", encoding="utf-8-sig")
         job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.CSV,
-            skip_leading_rows=1,
-            autodetect=True,
             # Full replace: reference data, and a partial reload would be worse
             # than a clean one.
             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            allow_quoted_newlines=True,
         )
-        with path.open("rb") as handle:
-            job = client.load_table_from_file(
-                handle, f"{project}.{dataset}.{table}", job_config=job_config
-            )
+        job = client.load_table_from_dataframe(
+            frame, f"{project}.{dataset}.{table}", job_config=job_config
+        )
         job.result()
-        counts[table] = job.output_rows or 0
+
+        # From the table, not job.output_rows: the latter reports what this job
+        # wrote, which cannot tell a replace from a double-write.
+        counts[table] = client.get_table(f"{project}.{dataset}.{table}").num_rows
+        LOG.info("loaded %s (%s rows)", table, f"{counts[table]:,}")
+
     return counts
 
 

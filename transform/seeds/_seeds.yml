@@ -8,10 +8,22 @@ seeds:
       assert_normalize_macro_matches_python, which proves the SQL macro and
       the Python helper cannot drift apart unnoticed.
     config:
+      # Adapter-dispatched, not spelled out. "varchar" is DuckDB's name for
+      # this type and BigQuery rejects it outright -- "Invalid value for type:
+      # VARCHAR is not a valid value" -- so the seed failed on the first real
+      # BigQuery build and took the eight models downstream of it with it.
+      # "varchar" is DuckDB's spelling and BigQuery rejects it outright --
+      # "Invalid value for type: VARCHAR is not a valid value" -- so the seed
+      # failed on the first real BigQuery build and took the eight models
+      # downstream of it with it.
+      #
+      # Dispatched on target rather than via dbt.type_string(): the `dbt`
+      # namespace is not available when schema yml is rendered, which is itself
+      # only discoverable by trying it.
       column_types:
-        source_column: varchar
-        raw_value: varchar
-        python_normalized: varchar
+        source_column: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"
+        raw_value: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"
+        python_normalized: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"
     columns:
       - name: raw_value
         data_tests: [not_null]
