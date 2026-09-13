@@ -20,7 +20,7 @@ data: ## Download the Olist dataset from Kaggle into archive/
 	python scripts/download_data.py
 
 .PHONY: profile
-profile: ## Regenerate docs/data_profiling.md and the normalization parity seed
+profile: ## Regenerate docs/data_profiling.md, docs/figures.json and the parity seed
 	python scripts/profile_dataset.py
 
 .PHONY: build
@@ -58,6 +58,14 @@ replay: ## Emit one slice, e.g. make replay START=2017-03-01 END=2017-04-01
 .PHONY: backfill
 backfill: ## Replay + load the whole coverage window. TARGET=duckdb|bigquery
 	python -m ingestion.backfill --target $(TARGET)
+
+.PHONY: readme
+readme: ## Render README.md from README.template.md and the measured figures
+	python scripts/render_readme.py
+
+.PHONY: readme-check
+readme-check: ## Fail if the committed README disagrees with the figures
+	python scripts/render_readme.py --check
 
 .PHONY: verify-slices
 verify-slices: ## Check every window's completion marker. TARGET=duckdb|bigquery

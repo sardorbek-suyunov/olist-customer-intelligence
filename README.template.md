@@ -15,7 +15,7 @@ by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 
 [![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/USER/REPO/actions/workflows/ci.yml)
 
-**55 dbt tests · 44 Python tests · full build in ~5s on DuckDB · $0 to run**
+**{{dbt_tests}} dbt tests · {{python_tests}} Python tests · full build in ~5s on DuckDB · $0 to run**
 
 ---
 
@@ -30,20 +30,20 @@ attributes true *at purchase time*. The idiomatic answer is `dbt snapshot` on
 
 | Table | Rows | Distinct key | Repeat observations |
 |---|---:|---:|---:|
-| `olist_customers_dataset` | 99,441 | 99,441 (`customer_id`) | **0** |
-| `olist_orders_dataset` | 99,441 | 99,441 (`customer_id`) | **0** |
-| `olist_products_dataset` | 32,951 | 32,951 (`product_id`) | **0** |
-| `olist_sellers_dataset` | 3,095 | 3,095 (`seller_id`) | **0** |
+| `olist_customers_dataset` | {{grain_customers_rows}} | {{grain_customers_distinct}} (`customer_id`) | **{{grain_customers_repeats}}** |
+| `olist_orders_dataset` | {{grain_orders_rows}} | {{grain_orders_distinct}} (`customer_id`) | **{{grain_orders_repeats}}** |
+| `olist_products_dataset` | {{grain_products_rows}} | {{grain_products_distinct}} (`product_id`) | **{{grain_products_repeats}}** |
+| `olist_sellers_dataset` | {{grain_sellers_rows}} | {{grain_sellers_distinct}} (`seller_id`) | **{{grain_sellers_repeats}}** |
 
 `customer_id` is an **order-scoped surrogate** — Olist mints a fresh one per
-order, strictly 1:1 with `order_id`. A snapshot keyed on it emits 99,441 records
+order, strictly 1:1 with `order_id`. A snapshot keyed on it emits {{grain_orders_rows}} records
 with one version each and zero change events: a history table structurally
 incapable of recording history.
 
 The dimension is therefore **derived** at `customer_unique_id` grain, ordering
 each customer's observations by the `order_purchase_timestamp` of the order that
-minted them. Result: **259 real change events across 252 customers**
-(96,096 current + 259 historical = 96,355 rows).
+minted them. Result: **{{scd2_change_events}} real change events across {{scd2_customers_changed}} customers**
+({{dim_customers_current}} current + {{dim_customers_historical}} historical = {{dim_customers_rows}} rows).
 
 `fct_orders` joins to the version valid at purchase time:
 
@@ -54,8 +54,8 @@ inner join dim_customers d
     and o.order_purchase_timestamp <  d.valid_to    -- half-open
 ```
 
-> **A naive join to the current row mis-attributes 272 of 99,441 orders
-> (0.274%) across 252 customers — 43 of them to the wrong _state_.**
+> **A naive join to the current row mis-attributes {{misattributed_orders}} of {{orders_total}} orders
+> ({{misattributed_pct}}%) across {{misattributed_customers}} customers — {{misattributed_wrong_state}} of them to the wrong _state_.**
 
 Small, and completely silent: without the as-of join those orders move revenue
 between regions in every geographic report. → [ADR 0001](docs/adr/0001-derive-scd2-customers.md)
@@ -108,7 +108,7 @@ cross-database macros, not by forking models.
 ```bash
 make install          # deps + dbt packages
 make data             # fetch the dataset from Kaggle into archive/
-make build            # 12 models, 55 tests, against DuckDB
+make build            # {{dbt_models}} models, {{dbt_tests}} tests, against DuckDB
 make dashboard        # Streamlit against the committed snapshot
 ```
 
@@ -123,19 +123,19 @@ dataset.
 
 ## Data quality
 
-55 dbt tests run interleaved with the models (`dbt build`), so a failing test
+{{dbt_tests}} dbt tests run interleaved with the models (`dbt build`), so a failing test
 stops its downstream models rather than letting bad data propagate. Beyond the
 usual `unique`/`not_null`/`relationships`, six singular tests guard invariants
 that the framework cannot:
 
 | Test | Guards |
 |---|---|
-| `assert_fct_orders_grain_preserved` | The as-of join stays exactly 1:1. Catches **fan-out** (which a *closed* interval would cause on the 290 tied timestamps) and **drop-out** (which an unfloored version-1 `valid_from` would cause for a backdated late arrival) in one assertion. |
+| `assert_fct_orders_grain_preserved` | The as-of join stays exactly 1:1. Catches **fan-out** (which a *closed* interval would cause on the {{tied_pairs}} tied timestamps) and **drop-out** (which an unfloored version-1 `valid_from` would cause for a backdated late arrival) in one assertion. |
 | `assert_no_overlapping_customer_versions` | No customer has two versions valid at once. |
 | `assert_no_mojibake_in_mart_text` | No non-ASCII character survives into a normalized mart column. |
 | `assert_exactly_one_current_version_per_customer` | Exactly one `is_current` row per customer. |
 | `assert_customer_versions_reconcile_to_orders` | Every order contributes to exactly one version observation. |
-| `assert_normalize_macro_matches_python` | The SQL macro and the Python helper agree on all **12,818** distinct location strings. Executed on DuckDB; the BigQuery path is compile-checked only (see *Validation status*). |
+| `assert_normalize_macro_matches_python` | The SQL macro and the Python helper agree on all **{{parity_rows}}** distinct location strings. Executed on DuckDB; the BigQuery path is compile-checked only (see *Validation status*). |
 
 That last one is the most useful test in the repo, and it earned its place
 within a minute of being written.
@@ -164,12 +164,12 @@ merges with real `sao paulo`) while punctuation becomes a **space** (so
 
 Honest accounting, because the intuitive answer is wrong:
 
-- **Customers: 0 spurious versions removed.** The source already ships
+- **Customers: {{spurious_versions_removed}} spurious versions removed.** The source already ships
   lowercased, ASCII-folded and trimmed. Normalization here is a *guard*, not a
-  cleaner — and it rewrites 450 rows across 52 legitimately punctuated city
+  cleaner — and it rewrites {{customer_punct_rows}} rows across {{customer_punct_cities}} legitimately punctuated city
   names (`santa barbara d'oeste`, `mogi-guacu`, `dias d'avila`). So the
   dimension **diffs on the normalized value and displays the raw one**.
-- **Sellers: 611 → 603 distinct cities.** *Here* it is load-bearing —
+- **Sellers: {{seller_cities_raw}} → {{seller_cities_normalized}} distinct cities.** *Here* it is load-bearing —
   `são paulo`/`sao  paulo`/`sao paulo` and
   `santa barbara d'oeste`/`d´oeste`/`d oeste` are genuine data-entry noise.
 
@@ -189,9 +189,9 @@ measured, not assumed:
 
 | Source column | Non-ASCII rows | Mojibake rows | distinct | Reaches a mart? |
 |---|---:|---:|---:|---|
-| `customers.customer_city` | 0 | **0** | 0 | — |
-| `sellers.seller_city` | 3 | **0** | 0 | yes, but nothing corrupt: both spellings are accents an NFD pass resolves, and `santa barbara d´oeste` folds onto the same canonical `santa barbara d oeste` as `d'oeste` |
-| `geolocation.geolocation_city` | 73,442 | **4** | 3 | **no** — `stg_geolocation` computes city in a CTE and discards it; the model is keyed on `zip_code_prefix` |
+| `customers.customer_city` | {{non_ascii_customers_rows}} | **{{mojibake_customers_rows}}** | {{mojibake_customers_distinct}} | — |
+| `sellers.seller_city` | {{non_ascii_sellers_rows}} | **{{mojibake_sellers_rows}}** | {{mojibake_sellers_distinct}} | yes, but nothing corrupt: both spellings are accents an NFD pass resolves, and `santa barbara d´oeste` folds onto the same canonical `santa barbara d oeste` as `d'oeste` |
+| `geolocation.geolocation_city` | {{non_ascii_geolocation_rows}} | **{{mojibake_geolocation_rows}}** | {{mojibake_geolocation_distinct}} | **no** — `stg_geolocation` computes city in a CTE and discards it; the model is keyed on `zip_code_prefix` |
 
 The two columns measure different things, and conflating them is what made an
 earlier version of this table wrong. *Non-ASCII* counts every accented character,
@@ -200,9 +200,9 @@ only what survives accent-stripping — a character no accent explains.
 
 **City is never a `JOIN` key or a `GROUP BY` key in any model** — every join is
 on `zip_code_prefix` or an id. So nothing splits one city into two rows, and the
-4 corrupt values across 1,550,851 source rows affect no
+{{mojibake_rows_total}} corrupt values across {{source_rows_total}} source rows affect no
 aggregate. Writing a byte-level repair into hot-path SQL to fix
-3 values nothing reads would be the wrong trade.
+{{mojibake_geolocation_distinct}} values nothing reads would be the wrong trade.
 
 `assert_no_mojibake_in_mart_text` stops that reasoning from silently expiring:
 if a non-ASCII character ever reaches a normalized mart column, the build fails
@@ -217,9 +217,9 @@ compile-checked only.
 
 | | DuckDB | BigQuery |
 |---|---|---|
-| 12 models build | ✅ executed | ⬜ not yet run |
-| 55 dbt tests pass | ✅ executed | ⬜ not yet run |
-| Normalization parity over 12,818 strings | ✅ executed | ⬜ not yet run |
+| {{dbt_models}} models build | ✅ executed | ⬜ not yet run |
+| {{dbt_tests}} dbt tests pass | ✅ executed | ⬜ not yet run |
+| Normalization parity over {{parity_rows}} strings | ✅ executed | ⬜ not yet run |
 | Macros render (`dbt parse`) | ✅ | ✅ |
 | `maximum_bytes_billed` rejects an oversized query | n/a | ⬜ **not yet observed firing** |
 
@@ -232,8 +232,8 @@ SQL, and all three would have failed at runtime on BigQuery:
 2. **`regexp_matches` is DuckDB-only** (BigQuery: `regexp_contains`).
 3. **`dim_customers` could not be partitioned at all.** BigQuery time-unit
    partitioning only accepts values in 1960-01-01 … 2159-12-31, and version 1's
-   `valid_from` is floored to 1900-01-01 — which would have put 96,096 of
-   96,355 rows outside the legal range. Partitioning removed (it was also the
+   `valid_from` is floored to 1900-01-01 — which would have put {{dim_customers_current}} of
+   {{dim_customers_rows}} rows outside the legal range. Partitioning removed (it was also the
    wrong tool for a 4.5 MB dimension); clustering retained. `fct_orders` moved
    from daily to **monthly** partitions for the same sizing reason — 775
    partitions averaging 13 KB is far below the ~1 GB partition BigQuery is
@@ -302,7 +302,7 @@ An LLM that writes SQL will eventually write a cross join. A prompt saying
 ## Repository layout
 
 ```
-analytics/          NL->SQL spend ceilings and read-only guards (+ 19 unit tests)
+analytics/          NL->SQL spend ceilings and read-only guards (+ {{analytics_tests}} unit tests)
 dashboard/          Streamlit app + committed Parquet snapshot of the marts
 docs/adr/           Architecture decision records
 docs/               Generated data profiling report
@@ -322,7 +322,7 @@ was shared because a service-account key expired is worse than no demo.
 
 | Component | State |
 |---|---|
-| Replay harness, staging, SCD2 marts, 55 dbt tests | **Built and passing** |
+| Replay harness, staging, SCD2 marts, {{dbt_tests}} dbt tests | **Built and passing** |
 | DuckDB + BigQuery dual targets, cost ceilings | **Built** |
 | Streamlit dashboard + committed snapshot | **Built** |
 | Airflow DAGs + integrity tests | **Built**, import-verified in CI |

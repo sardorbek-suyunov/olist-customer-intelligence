@@ -21,6 +21,9 @@ archive/
 !.devcontainer/devcontainer.json
 # Provenance for the committed dashboard snapshot -- row counts and build time.
 !dashboard/data/_manifest.json
+# Generated, but committed on purpose: it is what README.md is rendered from,
+# and CI compares a fresh render against the committed one.
+!docs/figures.json
 !package.json
 !package-lock.json
 credentials/

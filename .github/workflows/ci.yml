@@ -36,9 +36,13 @@ jobs:
           dbt deps
           dbt parse
 
-  # The real gate: every model built and all 67 tests run against DuckDB,
-  # which reads the CSVs in place. No warehouse, no cloud credentials, no
-  # spend -- the whole pipeline is verified on free CI minutes.
+  # The real gate: every model built and every test run against DuckDB, which
+  # reads the CSVs in place. No warehouse, no cloud credentials, no spend -- the
+  # whole pipeline is verified on free CI minutes.
+  #
+  # Deliberately no test count here. This comment said 67 while the README said
+  # 68 and dbt reported 55; a number in a place nothing generates is a number
+  # that will drift.
   build:
     name: dbt build (duckdb)
     runs-on: ubuntu-latest
@@ -80,8 +84,15 @@ jobs:
       - name: Assert documented figures are current
         run: |
           python scripts/profile_dataset.py
-          git diff --exit-code docs/data_profiling.md transform/seeds/normalization_parity.csv \
+          git diff --exit-code docs/data_profiling.md docs/figures.json transform/seeds/normalization_parity.csv \
             || (echo "::error::Generated files are stale. Run 'make profile' and commit." && exit 1)
+
+      # The README is rendered from those figures, so a stale README is one whose
+      # numbers disagree with the data. This is the gate that would have caught
+      # 611 -> 603 drifting to 611 -> 604, and the test count claiming 68 where dbt
+      # reports 55.
+      - name: Assert README matches the measured figures
+        run: python scripts/render_readme.py --check
 
       - name: Assert dashboard snapshot is current
         run: |

@@ -69,3 +69,20 @@ distinct location strings in the source with their Python-normalized form;
 `assert_normalize_macro_matches_python` re-derives each one through the macro in
 the target's own SQL dialect and fails the build on any disagreement.
 
+## 6. Non-ASCII survivors in the source
+
+Two different things get called mojibake, so both are counted. *Non-ASCII* is any
+character outside 7-bit ASCII, which includes every legitimately accented city
+name. *Mojibake* is the subset that survives accent-stripping -- a character no
+accent explains, such as the bare Latin-1 continuation byte left behind when
+double-encoded UTF-8 was accent-stripped.
+
+Only the second column is a data-quality problem, and it is the one the decision
+to document rather than repair rests on.
+
+| Source column | Non-ASCII rows | distinct | Mojibake rows | distinct |
+|---|---:|---:|---:|---:|
+| `customers.customer_city` | 0 | 0 | 0 | 0 |
+| `sellers.seller_city` | 3 | 2 | 0 | 0 |
+| `geolocation.geolocation_city` | 73442 | 2085 | 4 | 3 |
+
