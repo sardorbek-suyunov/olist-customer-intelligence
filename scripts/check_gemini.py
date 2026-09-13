@@ -34,6 +34,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=None, help="exact model id to resolve")
     parser.add_argument("--list-only", action="store_true")
+    parser.add_argument(
+        "--thinking-budget",
+        type=int,
+        default=None,
+        help="0 disables thinking. Gate the configuration you will actually run: "
+        "thinking tokens bill at the output rate and dominated the first pilot.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -81,9 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from enrichment.client import GeminiClient
 
-        raw, usage = GeminiClient(args.model, client=client).generate(
-            prompt, taxonomy.response_schema()
-        )
+        raw, usage = GeminiClient(
+            args.model, client=client, thinking_budget=args.thinking_budget
+        ).generate(prompt, taxonomy.response_schema())
     except Exception as exc:  # noqa: BLE001
         print(f"  FAIL  call failed: {exc}")
         return 1
@@ -92,7 +99,10 @@ def main(argv: list[str] | None = None) -> int:
     batched = cost_usd(args.model, usage.input_tokens, usage.output_tokens, batch=True)
 
     print(f"  input tokens  {usage.input_tokens:,}   (API-reported, not estimated)")
-    print(f"  output tokens {usage.output_tokens:,}")
+    print(
+        f"  output tokens {usage.output_tokens:,}"
+        f"   = {usage.candidates_tokens:,} answer + {usage.thoughts_tokens:,} thinking"
+    )
     print(f"  wall          {usage.wall_seconds:.2f}s")
     print(f"  cost          ${standard:.6f} standard / ${batched:.6f} batch")
     print(f"\n  response: {raw.strip()[:400]}")
