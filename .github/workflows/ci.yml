@@ -129,7 +129,15 @@ jobs:
           pip install -r orchestration/requirements-airflow.txt \
             --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${{ env.PYTHON_VERSION }}.txt"
           pip install pytest
+      # AIRFLOW_HOME and a migrated metadata DB are both required: DagBag in
+      # Airflow 3 reaches for the database, and without them every test failed
+      # with "sqlite3.OperationalError: unable to open database file". The job had
+      # never got this far before -- it was failing at the install step -- so this
+      # was the next thing waiting to be discovered.
       - name: DAG integrity tests
         env:
           AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-        run: python -m pytest orchestration/tests -q
+          AIRFLOW_HOME: ${{ runner.temp }}/airflow
+        run: |
+          airflow db migrate
+          python -m pytest orchestration/tests -q
