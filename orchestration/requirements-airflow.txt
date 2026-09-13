@@ -13,16 +13,36 @@
 # deliberately. They are pinned to be reproducible, not to be current; the
 # dag-import CI job is what proves a bump has not broken the DAGs.
 
+# The one version that must be stated here, because it selects which constraints
+# file applies. Everything else is resolved by that file.
 apache-airflow==3.0.2
 
+# Providers are deliberately UNPINNED. They were pinned, and the pins
+# contradicted the very constraints file this comment tells you to install with:
+# standard was pinned to 1.0.0 against a constraint of 1.2.0, google to 14.0.0
+# against 15.1.0. pip cannot satisfy both, so `pip install -r <this file>
+# --constraint <that file>` was ResolutionImpossible -- the install this file
+# documents had never once been performed.
+#
+# It failed in CI too, from the first push, which is how the README came to claim
+# the DAGs were "import-verified in CI" while the job that would have verified
+# them had never got past its install step.
+#
+# Pinning them again here would recreate a second copy of a version the
+# constraints file already states. One source.
+#
 # In Airflow 3, BashOperator and EmptyOperator live in the standard provider
 # rather than airflow.operators.*.
-apache-airflow-providers-standard==1.0.0
+apache-airflow-providers-standard
 
 # BigQuery target for the scheduled runs.
-apache-airflow-providers-google==14.0.0
+apache-airflow-providers-google
 
-# dbt is invoked over the CLI by BashOperator, so it must be present in the
-# same image. Versions match requirements.txt.
-dbt-core==1.12.4
-dbt-bigquery==1.10.1
+# dbt is NOT here, and cannot be. dbt-core 1.12.4 requires click>=8.3.0 while
+# Airflow 3.0.2's constraints pin click==8.2.1, so any attempt to resolve dbt
+# under those constraints is ResolutionImpossible.
+#
+# It is invoked over the CLI by BashOperator and does have to be in the same
+# image, so it is installed in a second, unconstrained pass from
+# requirements.txt. See orchestration/docker/Dockerfile for the two-step install
+# and why the order matters.

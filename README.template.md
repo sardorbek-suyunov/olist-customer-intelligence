@@ -238,6 +238,7 @@ nothing below is inferred from a compile.
 | Raw backfill reconciles to source | ✅ executed | ✅ executed |
 | Slice reload leaves row counts unchanged | ✅ executed | ✅ executed |
 | `maximum_bytes_billed` rejects an oversized query | n/a | ✅ **observed firing** |
+| One DAG window executed end to end | ✅ executed | ⬜ not yet run |
 
 The SCD2 figures come out identical on both engines: {{scd2_change_events}} change events
 across {{scd2_customers_changed}} customers, {{dim_customers_current}} current +
@@ -303,7 +304,28 @@ Three more needed a real run, and no amount of compiling would have found them:
    three times and wrong once, with nothing failing until a join went looking
    for a column by name.
 
-A fourth class showed up in ingestion rather than SQL, and is written up in
+Three more surfaced the first time the **orchestrator** ran, having survived
+every import check and structural assertion CI makes:
+
+7. **The transform task could never render.** `--vars` was written
+   `{{"run_date": ...}}` — doubled braces, which is how you escape a brace in an
+   f-string, in a string that is not an f-string. Jinja read `{{` as the start of
+   a print statement: *TemplateSyntaxError, expected token 'end of print
+   statement', got ':'*.
+8. **A manual run produced a zero-width window.** In Airflow 3 a manual trigger
+   has no schedule-derived interval, so `data_interval_start` and
+   `data_interval_end` both collapse onto the logical date. The DAG passed both
+   through and replay correctly refused `--start 2016-09-01 --end 2016-09-01`.
+   Scheduled runs would have been fine, which is exactly why nothing caught it.
+   The window end is now derived from its start.
+9. **`requirements-airflow.txt` could not be installed as documented.** It
+   pinned providers against versions the constraints file it tells you to use
+   pins differently, so `pip install -r <file> --constraint <that file>` was
+   ResolutionImpossible — and the CI job that would have caught this failed at
+   its install step on the very first push, which is how the Status table came
+   to describe the DAGs as "import-verified in CI".
+
+A tenth showed up in ingestion rather than SQL, and is written up in
 [the incident note](docs/incidents/2026-09-11-torn-backfill.md): an interrupted
 backfill left a slice half-loaded and reported success, because the
 reconciliation guarded `table in counts` and a table that was never reached
@@ -312,9 +334,10 @@ contributes no count to disagree with.
 `strip_accents` was already adapter-dispatched, and `IS DISTINCT FROM` was
 rewritten longhand so the parity test compiles identically everywhere.
 
-**Six dialect bugs, three of which only a real run could find.** That ratio is
-the argument for running it, and against a status table that says "compile-checked"
-and means "works".
+**Nine bugs; six of them needed something to actually execute.** Three came from
+a static sweep, three from the first BigQuery build, three from the first DAG run.
+That ratio is the argument for running things, and against a status table that
+says "compile-checked" and means "works".
 
 ---
 
@@ -394,7 +417,7 @@ was shared because a service-account key expired is worse than no demo.
 | Replay harness, staging, SCD2 marts, {{dbt_tests}} dbt tests | **Built and passing** |
 | DuckDB + BigQuery dual targets, cost ceilings | **Built** |
 | Streamlit dashboard + committed snapshot | **Built** |
-| Airflow DAGs + integrity tests | **Built**, import-verified in CI |
+| Airflow DAGs + integrity tests | **Executed** — one backfill window end to end, all 7 tasks green; 16 integrity tests |
 | `ingestion/load.py` (slice → warehouse) | **Built and proven idempotent on both** — delete-then-insert (DuckDB) / partition-decorator `WRITE_TRUNCATE` (BigQuery) |
 | Slice completion markers + torn-load detection | **Built** — verified by killing the loader mid-slice, not by inspection |
 | dbt sources reading the *loaded* raw tables | **Wired on BigQuery** — the DuckDB target still reads the CSVs in place, deliberately, for fast credential-free CI |

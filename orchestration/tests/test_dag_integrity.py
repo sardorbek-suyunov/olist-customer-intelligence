@@ -55,7 +55,10 @@ def test_backfill_is_monthly_and_bounded(dagbag: DagBag) -> None:
     the daily one and double-process the tail.
     """
     dag = dagbag.get_dag("olist_backfill_monthly")
-    assert dag.schedule_interval == "@monthly"
+    # `schedule`, not `schedule_interval`: the latter was removed in Airflow 3 and
+    # this assertion had been raising AttributeError unnoticed, because the job
+    # that runs it never got past installing Airflow.
+    assert dag.schedule == "@monthly"
     assert dag.end_date is not None, "backfill DAG must stop at the daily handover"
 
 
@@ -90,6 +93,55 @@ def test_dbt_cannot_build_on_an_unverified_slice(dagbag: DagBag, dag_id: str) ->
     dag = dagbag.get_dag(dag_id)
     transform = dag.get_task("dbt_build")
     assert "verify_slice_complete" in {t.task_id for t in transform.upstream_list}
+
+
+@pytest.mark.parametrize("dag_id", sorted(EXPECTED_DAGS))
+def test_every_templated_field_renders(dagbag: DagBag, dag_id: str) -> None:
+    """
+    Templates must compile, not merely exist.
+
+    Both bugs found on the DAGs' first real execution were invisible to every
+    check above this one. `dbt_build` carried `{{"run_date": ...}}` -- doubled
+    braces copied from f-string escaping into a string that is not an f-string
+    -- so Jinja read it as a print statement and the task could never render.
+    Import succeeded, structure was correct, and the task was unrunnable.
+
+    This compiles each templated field through the DAG's own Jinja environment,
+    which is the cheapest possible version of running it.
+    """
+    dag = dagbag.get_dag(dag_id)
+    env = dag.get_template_env()
+
+    for task in dag.tasks:
+        for field in task.template_fields:
+            value = getattr(task, field, None)
+            if not isinstance(value, str):
+                continue
+            try:
+                env.from_string(value)
+            except Exception as exc:  # noqa: BLE001 - the exception is the evidence
+                pytest.fail(f"{dag_id}.{task.task_id}.{field} does not compile: {exc}\n{value}")
+
+
+@pytest.mark.parametrize("dag_id", sorted(EXPECTED_DAGS))
+def test_window_end_is_derived_not_read_from_the_interval(dagbag: DagBag, dag_id: str) -> None:
+    """
+    The replay window must not depend on `data_interval_end`.
+
+    A manually triggered run in Airflow 3 has no schedule-derived interval:
+    start and end both collapse onto the logical date, which rendered
+    `--start 2016-09-01 --end 2016-09-01` and replay rejected the zero-width
+    window. Scheduled runs were fine, so nothing short of executing a task could
+    have caught it.
+    """
+    dag = dagbag.get_dag(dag_id)
+    command = dag.get_task("replay_slice").bash_command
+
+    assert "data_interval_end" not in command, (
+        "replay_slice reads data_interval_end, which collapses onto the logical "
+        "date for a manual run and yields a zero-width window"
+    )
+    assert "--end" in command
 
 
 @pytest.mark.parametrize("dag_id", sorted(EXPECTED_DAGS))

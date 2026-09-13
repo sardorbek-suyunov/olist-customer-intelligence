@@ -88,23 +88,46 @@ def within_coverage(data_interval_start=None, **_) -> bool:
     return True
 
 
-def build_pipeline(dag: DAG) -> None:
+# The end of the window, computed from its start rather than read from
+# data_interval_end.
+#
+# A manually triggered run in Airflow 3 has no schedule-derived interval:
+# data_interval_start and data_interval_end both collapse onto the logical date.
+# Passing both straight through therefore produced `--start 2016-09-01 --end
+# 2016-09-01` on the DAG's first real execution, and replay correctly refused a
+# zero-width window. Scheduled runs would have been fine, which is precisely why
+# it survived import checks and structural assertions -- nothing that never runs
+# a task can notice this.
+#
+# Deriving the end from the start makes a manual trigger and a scheduled run
+# produce identical commands, which is the same convergence property
+# ingestion/backfill.py already promises between the CLI and the scheduler.
+WINDOW_END = {
+    "monthly": (
+        "{{ (data_interval_start + macros.dateutil.relativedelta.relativedelta(months=1)) | ds }}"
+    ),
+    "daily": "{{ macros.ds_add(data_interval_start | ds, 1) }}",
+}
+
+
+def build_pipeline(dag: DAG, cadence: str) -> None:
     """Attach the shared task chain to a DAG. Identical for both schedules."""
+    window_end = WINDOW_END[cadence]
     with dag:
         start = EmptyOperator(task_id="start")
 
         gate = within_coverage()
 
-        # Half-open [data_interval_start, data_interval_end) -- the same
-        # interval convention as the SCD2 validity windows, so consecutive
-        # runs partition the timeline exactly once.
+        # Half-open [data_interval_start, window_end) -- the same interval
+        # convention as the SCD2 validity windows, so consecutive runs partition
+        # the timeline exactly once.
         replay = BashOperator(
             task_id="replay_slice",
             bash_command=(
                 f"cd {PROJECT_ROOT} && "
                 "python -m ingestion.replay "
                 "--start {{ data_interval_start | ds }} "
-                "--end {{ data_interval_end | ds }} "
+                f"--end {window_end} "
                 "--out data/slices"
             ),
         )
@@ -137,13 +160,21 @@ def build_pipeline(dag: DAG) -> None:
 
         # `dbt build` runs models and tests interleaved, so a failing test
         # stops its downstream models rather than letting bad data propagate.
+        #
+        # SINGLE braces around the --vars payload. They were doubled, which is
+        # how you escape a brace in an f-string -- but this is not an f-string,
+        # so the doubling survived into the template and Jinja read `{{"run_date"`
+        # as the start of a print statement: TemplateSyntaxError, expected token
+        # 'end of print statement', got ':'. The task could never render, let
+        # alone run. In Jinja a lone `{` is literal text; only `{{`, `{%` and
+        # `{#` are special.
         transform = BashOperator(
             task_id="dbt_build",
             bash_command=(
                 f"cd {PROJECT_ROOT}/transform && "
                 "DBT_PROFILES_DIR=. dbt build "
                 f"--target {DBT_TARGET} "
-                '--vars \'{{"run_date": "{{ data_interval_start | ds }}"}}\''
+                '--vars \'{"run_date": "{{ data_interval_start | ds }}"}\''
             ),
         )
 
@@ -167,7 +198,7 @@ backfill_monthly = DAG(
     tags=["olist", "backfill", "monthly"],
     doc_md=__doc__,
 )
-build_pipeline(backfill_monthly)
+build_pipeline(backfill_monthly, "monthly")
 
 
 incremental_daily = DAG(
@@ -181,4 +212,4 @@ incremental_daily = DAG(
     tags=["olist", "incremental", "daily"],
     doc_md=__doc__,
 )
-build_pipeline(incremental_daily)
+build_pipeline(incremental_daily, "daily")

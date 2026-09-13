@@ -119,9 +119,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+      # The Airflow version is read from the requirements file rather than
+      # repeated here. It was repeated, and a second copy of a version is a
+      # second thing to forget to bump.
       - name: Install Airflow against the official constraints
         run: |
-          AIRFLOW_VERSION=3.0.2
+          AIRFLOW_VERSION=$(sed -n 's/^apache-airflow==//p' orchestration/requirements-airflow.txt)
+          echo "Resolving against Airflow ${AIRFLOW_VERSION} constraints"
           pip install -r orchestration/requirements-airflow.txt \
             --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${{ env.PYTHON_VERSION }}.txt"
           pip install pytest
