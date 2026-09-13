@@ -54,8 +54,15 @@ inner join dim_customers d
     and o.order_purchase_timestamp <  d.valid_to    -- half-open
 ```
 
-> **A naive join to the current row mis-attributes {{misattributed_orders}} of {{orders_total}} orders
-> ({{misattributed_pct}}%) across {{misattributed_customers}} customers — {{misattributed_wrong_state}} of them to the wrong _state_.**
+> **{{orders_on_noncurrent_version}} of {{orders_total}} orders belong to a superseded
+> version. {{misattributed_orders}} of those ({{misattributed_pct}}%, across
+> {{misattributed_customers}} customers) receive materially different attributes from a
+> naive join to the current row — {{misattributed_wrong_state}} of them the wrong _state_.**
+
+The other {{orders_returned_to_previous_value}} belong to customers who moved away and
+came back, so the current row happens to be correct for them. Worth separating: the
+as-of join is load-bearing for {{orders_on_noncurrent_version}} orders, but only
+{{misattributed_orders}} of them would actually be wrong without it.
 
 Small, and completely silent: without the as-of join those orders move revenue
 between regions in every geographic report. → [ADR 0001](docs/adr/0001-derive-scd2-customers.md)
@@ -115,9 +122,17 @@ make dashboard        # Streamlit against the committed snapshot
 No Kaggle account? Download the dataset manually, unzip into `archive/`, and
 `make data` will verify the row counts instead of downloading.
 
-The raw CSVs (~123 MB, and `olist_geolocation_dataset.csv` alone is ~60 MB) are
-gitignored — the repo stays small and does not redistribute a CC BY-NC-SA
-dataset.
+### What is committed, and what is not
+
+| | Committed? | Why |
+|---|---|---|
+| `archive/*.csv` — the raw extract, ~123 MB | No | `make data` fetches it. Redistributing a CC BY-NC-SA dataset is not ours to do, and `olist_geolocation_dataset.csv` alone is ~60 MB. |
+| `data/slices/**` — replay output, ~29 MB over 56 windows | No | Derived and regenerable with `make backfill`. Committing generated Parquet would contradict the clone-and-run claim. |
+| `ingestion/tests/fixtures/purchase_date=2016-09-01` — 45 KB | **Yes** | One slice, so the loader tests run without a 123 MB download. Every table populated, and payments (3) do not match orders (4), so it exercises the child tables not being 1:1. |
+| `dashboard/data/*.parquet` — the marts snapshot, ~15 MB | **Yes, deliberately** | This one is the exception that looks like the rule it breaks. A public demo that 500s six months after it was shared because a service-account key expired is worse than no demo, so the dashboard reads committed Parquet by default and treats live BigQuery as the opt-in. |
+
+The distinction is between *derived data that regenerates in seconds* and *the
+one artifact whose whole job is to survive the credentials going stale*.
 
 ---
 

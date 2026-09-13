@@ -11,6 +11,15 @@ archive/
 !transform/seeds/*.csv
 !dashboard/data/*.parquet
 
+# Replay output. Derived, regenerable (`make data && make backfill`), and ~29 MB
+# across 56 windows -- committing it would contradict the clone-and-run claim
+# and redistribute a CC BY-NC-SA dataset besides. `make clean` deletes it.
+#
+# Not to be confused with dashboard/data/*.parquet above, which is a committed
+# snapshot of the MARTS and stays committed on purpose: the public demo has to
+# survive a lapsed service-account credential.
+data/slices/
+
 # ---------------------------------------------------------------------------
 # Credentials. Listed before any GCP key exists on disk, on purpose.
 # ---------------------------------------------------------------------------
@@ -24,6 +33,9 @@ archive/
 # Generated, but committed on purpose: it is what README.md is rendered from,
 # and CI compares a fresh render against the committed one.
 !docs/figures.json
+# The one committed replay slice: a 45 KB test fixture, so the loader tests do
+# not need the 123 MB source dataset.
+!ingestion/tests/fixtures/**/_manifest.json
 !package.json
 !package-lock.json
 credentials/

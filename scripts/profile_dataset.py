@@ -316,6 +316,16 @@ def main() -> None:
         wrong |= joined[column] != joined[column + "_current"]
     wrong_state = joined.customer_state != joined.customer_state_current
 
+    # Two different counts, and the gap between them is the interesting part.
+    # An order can sit on a superseded version and still receive the right
+    # values, if the customer later moved back to an address they had before.
+    # Reporting only the larger number overstates the damage; reporting only the
+    # smaller one hides that the join is doing more work than the damage implies.
+    version = norm_changes.groupby(obs["customer_unique_id"]).cumsum()
+    on_noncurrent = version < version.groupby(obs["customer_unique_id"]).transform("max")
+    fig("orders_on_noncurrent_version", int(on_noncurrent.sum()))
+    fig("orders_returned_to_previous_value", int((on_noncurrent & ~wrong).sum()))
+
     w("## 4. Cost of getting the join wrong")
     w("")
     w("Joining `fct_orders` to the **current** dimension row instead of the version valid")
@@ -330,6 +340,21 @@ def main() -> None:
     w(
         f"customers, **{fig('misattributed_wrong_state', int(wrong_state.sum()))}** of them to the wrong state."
     )
+    w("")
+    w(
+        "- Orders landing on a **superseded** version: **{}**".format(
+            FIGURES["orders_on_noncurrent_version"]
+        )
+    )
+    w(
+        "- ...of which **{}** receive materially different attributes. The other **{}** belong".format(
+            FIGURES["misattributed_orders"],
+            FIGURES["orders_returned_to_previous_value"],
+        )
+    )
+    w("  to customers who returned to an address they had before, so the current row")
+    w("  happens to be correct for them. The join is doing more work than the damage")
+    w("  figure alone implies.")
     w("")
 
     parity_rows = fig("parity_rows", write_parity_seed(f))

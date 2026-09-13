@@ -1,0 +1,11 @@
+{
+  "logical_date": "2016-09-01",
+  "generated_at": "2026-09-13T05:03:47.977790+00:00",
+  "row_counts": {
+    "orders": 4,
+    "order_items": 6,
+    "order_payments": 3,
+    "order_reviews": 4,
+    "customers": 4
+  }
+}

@@ -1,7 +1,7 @@
 {{ config(materialized='view') }}
 
 /*
-    Grain: one row per customer_id (order-scoped). 99,441 rows, 99,441 distinct.
+    Grain: one row per customer_id (order-scoped), never repeating.
     Deliberately NOT deduplicated to customer_unique_id here -- the
     person-level grain is built in int_customer_address_versions, where the
     order timestamp is available to order a customer's observations.

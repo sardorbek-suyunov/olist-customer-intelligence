@@ -1,6 +1,6 @@
 {{ config(materialized='view') }}
 
--- Grain: one row per (order_id, order_item_id). 112,650 rows.
+-- Grain: one row per (order_id, order_item_id).
 -- NOTE: price and freight_value live HERE, not on products. A product's
 -- selling price is a property of the line item, not of the product record.
 

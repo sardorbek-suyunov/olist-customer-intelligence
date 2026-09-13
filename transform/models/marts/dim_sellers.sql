@@ -1,7 +1,7 @@
 {{ config(materialized='table') }}
 
 /*
-    TYPE 1 -- 3,095 rows, 3,095 distinct seller_ids, one observation per key.
+    TYPE 1 -- one observation per seller_id, and no repeats anywhere.
 
     This is where text normalization actually earns its place: 611 raw
     seller_city strings collapse to 603 canonical ones. Both the raw and the

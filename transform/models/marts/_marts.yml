@@ -6,7 +6,7 @@ models:
       Type 2 customer dimension at customer_unique_id grain, hand-built because
       the source natural key (customer_id) is order-scoped and never repeats,
       which makes `dbt snapshot` structurally unable to record history here.
-      96,096 current + 259 historical = 96,355 rows.
+      Row counts and change-event totals: docs/figures.json.
     columns:
       - name: customer_sk
         description: Surrogate key, md5(customer_unique_id | version_number).
@@ -32,8 +32,9 @@ models:
   - name: fct_orders
     description: |
       One row per order, joined to the customer dimension version valid at
-      purchase time. A naive current-row join mis-attributes 272 of 99,441
-      orders (0.274%), 43 of them to the wrong state.
+      purchase time. A naive current-row join mis-attributes a small fraction
+      of a percent of orders, some of them to the wrong state; the counts are
+      measured into docs/figures.json rather than repeated here.
     columns:
       - name: order_id
         data_tests: [unique, not_null]

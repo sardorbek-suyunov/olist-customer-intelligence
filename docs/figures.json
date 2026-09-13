@@ -33,6 +33,8 @@
   "non_ascii_geolocation_rows": 73442,
   "non_ascii_sellers_distinct": 2,
   "non_ascii_sellers_rows": 3,
+  "orders_on_noncurrent_version": 276,
+  "orders_returned_to_previous_value": 4,
   "orders_total": 99441,
   "parity_rows": 12818,
   "scd2_change_events": 259,

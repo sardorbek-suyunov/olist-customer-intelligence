@@ -6,21 +6,23 @@
     The obvious implementation is `dbt snapshot` on olist_customers_dataset
     with strategy=check. It does not work, and not because of tuning:
 
-      customer_id       99,441 rows / 99,441 distinct  -> never repeats
-      orders.customer_id 99,441 rows / 99,441 distinct -> strictly 1:1
+      customer_id is unique per row in both customers and orders, and the
+      two are strictly 1:1 -- it never repeats, anywhere.
 
-    customer_id is an ORDER-SCOPED surrogate. Olist mints a fresh one per
-    order. A snapshot keyed on it emits 99,441 records each with exactly one
-    version and zero change events -- a history table structurally incapable
-    of recording history.
+    customer_id is an ORDER-SCOPED surrogate: Olist mints a fresh one per
+    order. A snapshot keyed on it emits one record per row, each with exactly
+    one version and zero change events -- a history table structurally
+    incapable of recording history.
 
-    The person-level key is customer_unique_id (96,096 distinct; 2,997 with
-    more than one order, max 17). The customers table carries no timestamp of
-    its own, so the only way to order a customer's observations is to borrow
-    order_purchase_timestamp from the order that minted each customer_id.
+    The person-level key is customer_unique_id. The customers table carries no
+    timestamp of its own, so the only way to order a customer's observations is
+    to borrow order_purchase_timestamp from the order that minted each
+    customer_id.
 
-    MEASURED OUTPUT: 259 change events across 252 customers.
-    (256 zip, 124 city, 40 state -- overlapping.)
+    Figures deliberately not repeated here -- row counts, distinct counts and
+    the change-event totals are measured into docs/figures.json by
+    scripts/profile_dataset.py, and a number copied into a comment is a number
+    that will eventually disagree with the data.
 
     The hash is taken over the NORMALIZED attributes so that a future load of
     dirty strings cannot manufacture spurious versions; the raw values are

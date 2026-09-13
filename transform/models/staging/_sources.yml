@@ -17,7 +17,7 @@ sources:
             description: Order-scoped surrogate. Unique per row, never repeats.
             data_tests: [unique, not_null]
           - name: customer_unique_id
-            description: The true person-level key. 96,096 distinct.
+            description: The true person-level key, one per person.
             data_tests: [not_null]
       - name: olist_orders_dataset
         columns:

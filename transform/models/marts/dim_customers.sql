@@ -9,11 +9,13 @@
     1. It would be rejected. BigQuery time-unit partitioning only accepts
        values in 1960-01-01 .. 2159-12-31, and version 1's valid_from is
        floored to 1900-01-01 (see var scd_valid_from_floor). Partitioning on
-       valid_from would put ~96,096 of 96,355 rows outside the legal range.
+       valid_from would put almost every row outside the legal range, since
+       version 1 is the overwhelming majority of the table.
 
-    2. It would be pointless even if legal. The table is 96,355 rows / ~4.5 MB.
-       BigQuery guidance is roughly 1 GB per partition; partitioning a 4.5 MB
-       dimension produces metadata overhead and slower scans, not faster ones.
+    2. It would be pointless even if legal. The table is single-digit MB.
+       BigQuery guidance is roughly 1 GB per partition; partitioning a
+       dimension this small produces metadata overhead and slower scans, not
+       faster ones.
 
     Clustering on customer_unique_id is the right tool at this size: it is free,
     has no minimum, and is what the as-of join actually probes on.
@@ -22,7 +24,7 @@
 /*
     Type 2 customer dimension at customer_unique_id grain.
 
-    Row count: 96,096 current + 259 historical = 96,355.
+    Row counts and change-event totals: docs/figures.json.
 
     Validity intervals are HALF-OPEN: [valid_from, valid_to). This matters --
     290 (customer, timestamp) pairs are exact ties, and a closed interval would

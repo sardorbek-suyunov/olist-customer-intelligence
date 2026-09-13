@@ -3,7 +3,7 @@
 /*
     TYPE 1 -- by necessity, not by choice.
 
-    olist_products_dataset holds 32,951 rows and 32,951 distinct product_ids:
+    olist_products_dataset has exactly one row per product_id:
     exactly one observation per key, so there is nothing to diff and no
     snapshot strategy can ever produce a second version.
 

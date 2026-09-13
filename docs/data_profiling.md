@@ -61,6 +61,12 @@ Joining `fct_orders` to the **current** dimension row instead of the version val
 at purchase time mis-attributes **272 of 99,441 orders (0.274%)** across **252**
 customers, **43** of them to the wrong state.
 
+- Orders landing on a **superseded** version: **276**
+- ...of which **272** receive materially different attributes. The other **4** belong
+  to customers who returned to an address they had before, so the current row
+  happens to be correct for them. The join is doing more work than the damage
+  figure alone implies.
+
 ## 5. Cross-language normalization parity
 
 `scripts/profile_dataset.py::normalize()` and the `normalize_text` dbt macro must

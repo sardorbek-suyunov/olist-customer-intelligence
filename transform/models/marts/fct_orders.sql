@@ -8,16 +8,18 @@
 ) }}
 
 {#
-    MONTHLY partitions, not daily. The table is 99,441 rows / ~10 MB across 26
-    months of data. Daily granularity would create ~775 partitions averaging
-    13 KB each -- far below the ~1 GB partition BigQuery is designed around, so
-    partition metadata lookup would dominate the scan it is meant to avoid.
-    Monthly gives 26 partitions and still demonstrates pruning on the column
+    MONTHLY partitions, not daily. The extract covers 2016-09-04 .. 2018-10-17,
+    so daily granularity would create roughly 775 partitions over a table of
+    single-digit MB -- far below the ~1 GB partition BigQuery is designed
+    around, and partition metadata lookup would dominate the scan it is meant
+    to avoid. Monthly gives 26 and still demonstrates pruning on the column
     that every time-bounded query filters on.
 #}
 
 /*
-    Grain: one row per order_id. Must be exactly 99,441.
+    Grain: one row per order_id, and exactly as many rows as the source has
+    orders -- asserted by assert_fct_orders_grain_preserved rather than stated
+    as a number here.
 
     THE AS-OF JOIN
     --------------
@@ -27,10 +29,12 @@
         on  o.order_purchase_timestamp >= d.valid_from
         and o.order_purchase_timestamp <  d.valid_to     -- half-open
 
-    Measured impact of getting this wrong: a naive join to the current row
-    mis-attributes 272 of 99,441 orders (0.274%) across 252 customers, 43 of
-    them to the wrong STATE. Small, but it is a silent correctness bug -- it
-    would quietly move revenue between regions in every geographic report.
+    Measured impact of getting this wrong: a small fraction of a percent of
+    orders receive attributes from the wrong version, some of them the wrong
+    STATE. Small, but it is a silent correctness bug -- it would quietly move
+    revenue between regions in every geographic report. The counts live in
+    docs/figures.json; see the README for the split between orders on a
+    superseded version and orders actually mis-attributed.
 
     assert_fct_orders_grain_preserved guards the join in both directions:
     a fan-out (duplicate version match) or a drop-out (gap in the validity

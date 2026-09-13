@@ -1,7 +1,7 @@
 {{ config(materialized='view') }}
 
 /*
-    Grain: one row per seller_id. 3,095 rows, 0 repeat observations -> Type 1.
+    Grain: one row per seller_id, no repeat observations -> Type 1.
 
     Unlike customers, seller_city is genuinely dirty and normalization is
     load-bearing here: 611 raw strings collapse to 603. Real merges include

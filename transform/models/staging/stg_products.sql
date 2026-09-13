@@ -1,6 +1,6 @@
 {{ config(materialized='view') }}
 
--- Grain: one row per product_id. 32,951 rows, 0 repeat observations.
+-- Grain: one row per product_id, with no repeat observations.
 -- There is exactly one observation per key and no price column, so this
 -- dimension has no derivable change history. Type 1 by necessity.
 
