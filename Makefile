@@ -67,6 +67,14 @@ readme: ## Render README.md from README.template.md and the measured figures
 readme-check: ## Fail if the committed README disagrees with the figures
 	python scripts/render_readme.py --check
 
+.PHONY: dag-run
+dag-run: ## Execute one DAG run in Docker, e.g. make dag-run WINDOW=2016-09-01
+	cd orchestration/docker && WINDOW=$(WINDOW) DAG_ID=$(or $(DAG_ID),olist_backfill_monthly) \n		docker compose run --rm dag-run
+
+.PHONY: dag-ui
+dag-ui: ## Airflow UI at localhost:8080 against the mounted project
+	cd orchestration/docker && docker compose up ui
+
 .PHONY: load-static
 load-static: ## Load the non-sliced reference tables. TARGET=duckdb|bigquery
 	python -m ingestion.load_static --target $(TARGET)

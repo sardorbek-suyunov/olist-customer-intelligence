@@ -1,0 +1,67 @@
+# Local Airflow, for actually running the DAGs.
+#
+#   make dag-run WINDOW=2016-09-01     one backfill window, end to end
+#   make dag-ui                        the web UI at localhost:8080
+#
+# SQLite + LocalExecutor: this exists to execute a DAG run, not to demonstrate a
+# production deployment. A Postgres metadata database and a real executor would
+# add moving parts without testing anything the DAG code is responsible for.
+#
+# The project is bind-mounted rather than baked in, so a code change is visible
+# to the next run without a rebuild.
+
+x-airflow-common: &airflow-common
+  build:
+    context: ../..
+    dockerfile: orchestration/docker/Dockerfile
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/orchestration/dags
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/state/airflow.db
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://localhost:8080/execution/
+    PYTHONPATH: /opt/airflow/project
+    # Consumed by the DAG through Airflow Variables, with these as the defaults
+    # a local run wants: the mounted project, and the credential-free target.
+    AIRFLOW_VAR_OLIST_PROJECT_ROOT: /opt/airflow/project
+    AIRFLOW_VAR_OLIST_DBT_TARGET: duckdb
+    DBT_DUCKDB_PATH: /opt/airflow/project/transform/olist.duckdb
+    # Passed through from the host so `make dag-run WINDOW=...` reaches the
+    # container. Interpolated here by compose; referenced as $$VAR in the
+    # command below so bash expands it rather than compose.
+    WINDOW: ${WINDOW:-}
+    DAG_ID: ${DAG_ID:-olist_backfill_monthly}
+  volumes:
+    - ../..:/opt/airflow/project
+    - airflow-state:/opt/airflow/state
+
+services:
+  # One-shot: initialise the metadata DB, then execute a single DAG run for
+  # WINDOW. `dags test` runs the whole DAG in-process, which is what makes this
+  # a real end-to-end execution rather than a scheduler smoke test.
+  dag-run:
+    <<: *airflow-common
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        airflow db migrate >/dev/null
+        : "$${WINDOW:?set WINDOW=YYYY-MM-DD, e.g. make dag-run WINDOW=2016-09-01}"
+        echo "--- executing $$DAG_ID for $$WINDOW ---"
+        airflow dags test "$$DAG_ID" "$$WINDOW"
+
+  ui:
+    <<: *airflow-common
+    ports:
+      - "8080:8080"
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        airflow db migrate >/dev/null
+        airflow standalone
+
+volumes:
+  airflow-state:
