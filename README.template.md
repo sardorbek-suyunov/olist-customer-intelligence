@@ -212,23 +212,51 @@ and the decision gets revisited against real numbers instead of a stale comment.
 
 ## Validation status
 
-Honest accounting of what has actually been executed, versus what is
-compile-checked only.
+Honest accounting of what has actually been executed. Both columns have now run;
+nothing below is inferred from a compile.
 
 | | DuckDB | BigQuery |
 |---|---|---|
-| {{dbt_models}} models build | ✅ executed | ⬜ not yet run |
-| {{dbt_tests}} dbt tests pass | ✅ executed | ⬜ not yet run |
-| Normalization parity over {{parity_rows}} strings | ✅ executed | ⬜ not yet run |
-| Macros render (`dbt parse`) | ✅ | ✅ |
-| `maximum_bytes_billed` rejects an oversized query | n/a | ⬜ **not yet observed firing** |
+| {{dbt_models}} models build | ✅ executed | ✅ executed |
+| {{dbt_tests}} dbt tests pass | ✅ executed | ✅ executed |
+| Normalization parity over {{parity_rows}} strings | ✅ executed | ✅ executed |
+| Raw backfill reconciles to source | ✅ executed | ✅ executed |
+| Slice reload leaves row counts unchanged | ✅ executed | ✅ executed |
+| `maximum_bytes_billed` rejects an oversized query | n/a | ✅ **observed firing** |
 
-Three dialect bugs were found and fixed by a static sweep for DuckDB-native
-SQL, and all three would have failed at runtime on BigQuery:
+The SCD2 figures come out identical on both engines: {{scd2_change_events}} change events
+across {{scd2_customers_changed}} customers, {{dim_customers_current}} current +
+{{dim_customers_historical}} historical = {{dim_customers_rows}} rows,
+{{misattributed_orders}} mis-attributed orders and {{misattributed_wrong_state}} of them to
+the wrong state. Checked by `make validate-bq`, which runs one SQL text per figure
+against both warehouses with only the schema substituted — if each engine got its
+own query, agreement would prove the queries matched rather than the pipelines.
+
+**What that does and does not prove.** It is dialect-and-engine equivalence, not
+two independent derivations of the same answer: both builds read the same replay
+output through the same dbt models. A shared modelling error would reproduce
+faithfully on both. What it rules out is the large class of bugs where one
+dialect quietly means something different from the other — which, as below, is
+not a hypothetical class.
+
+The ceiling was watched rather than assumed. A query planned at 1,049.9 MiB was
+rejected with `bytesBilledLimitExceeded` before billing anything. Note the exact
+ceiling: that probe sets a deliberately low **1 MiB** limit to force the
+rejection, not the **2 GiB** `maximum_bytes_billed` that
+[`profiles.yml`](transform/profiles.yml) puts on every real job. What is proven
+is that the mechanism rejects rather than bills; the production ceiling is the
+same mechanism at a different number.
+
+### The bugs this actually caught
+
+Three were found by a static sweep for DuckDB-native SQL, before any BigQuery
+run:
 
 1. **`md5()` returns `BYTES` on BigQuery, hex `VARCHAR` on DuckDB.** Undispatched,
    `customer_sk` would silently become a `BYTES` column and any join against a
-   `STRING` key would fail at runtime. Now `to_hex(md5(...))` on BigQuery.
+   `STRING` key would fail at runtime. Since resolved by deleting the local macro
+   entirely — `dbt_utils.generate_surrogate_key` builds on the adapter's own
+   `to_hex(md5(...))`, so there is no second implementation left to get wrong.
 2. **`regexp_matches` is DuckDB-only** (BigQuery: `regexp_contains`).
 3. **`dim_customers` could not be partitioned at all.** BigQuery time-unit
    partitioning only accepts values in 1960-01-01 … 2159-12-31, and version 1's
@@ -240,12 +268,38 @@ SQL, and all three would have failed at runtime on BigQuery:
    built around. Why partitioning was dropped rather than the sentinel moved:
    → [ADR 0003](docs/adr/0003-dim-customers-clustered-not-partitioned.md)
 
+Three more needed a real run, and no amount of compiling would have found them:
+
+4. **The partition column was not in the file.** The loader asked BigQuery to
+   partition on `_slice_date` while `replay.py` was not writing that column, so
+   the very first load job failed with *"The field specified for partitioning
+   cannot be found in the schema."* Both halves were individually valid; they
+   only disagreed when a real job read a real file.
+5. **The parity seed declared `varchar`.** DuckDB's spelling for the type.
+   BigQuery rejects it outright — *"Invalid value for type: VARCHAR is not a
+   valid value"* — failing the seed and the eight models downstream of it.
+6. **A reference table loaded with no column names.**
+   `product_category_name_translation` landed as `string_field_0` /
+   `string_field_1`, and `stg_products` failed with *"Name
+   product_category_name not found inside t"*. BigQuery's CSV autodetect infers
+   a header by finding a first row whose types differ from the body, which
+   cannot work for a table that is strings all the way down. The three sibling
+   tables loaded correctly, which is exactly what hid it: the same code, right
+   three times and wrong once, with nothing failing until a join went looking
+   for a column by name.
+
+A fourth class showed up in ingestion rather than SQL, and is written up in
+[the incident note](docs/incidents/2026-09-11-torn-backfill.md): an interrupted
+backfill left a slice half-loaded and reported success, because the
+reconciliation guarded `table in counts` and a table that was never reached
+contributes no count to disagree with.
+
 `strip_accents` was already adapter-dispatched, and `IS DISTINCT FROM` was
 rewritten longhand so the parity test compiles identically everywhere.
 
-**Until the BigQuery build has actually run, treat that column as unproven.**
-A ceiling nobody has watched trigger is not a verified ceiling, and a macro
-that has only ever compiled is not a tested macro.
+**Six dialect bugs, three of which only a real run could find.** That ratio is
+the argument for running it, and against a status table that says "compile-checked"
+and means "works".
 
 ---
 
@@ -326,9 +380,10 @@ was shared because a service-account key expired is worse than no demo.
 | DuckDB + BigQuery dual targets, cost ceilings | **Built** |
 | Streamlit dashboard + committed snapshot | **Built** |
 | Airflow DAGs + integrity tests | **Built**, import-verified in CI |
-| `ingestion/load.py` (slice → warehouse) | **Built** — idempotent delete-then-insert (DuckDB) / partition-decorator `WRITE_TRUNCATE` (BigQuery) |
-| dbt sources reading the *loaded* raw tables | Not wired — the DuckDB target still reads the CSVs in place for fast, credential-free CI |
-| Executed BigQuery run | **Blocked** — needs a GCP project (see *Validation status*) |
+| `ingestion/load.py` (slice → warehouse) | **Built and proven idempotent on both** — delete-then-insert (DuckDB) / partition-decorator `WRITE_TRUNCATE` (BigQuery) |
+| Slice completion markers + torn-load detection | **Built** — verified by killing the loader mid-slice, not by inspection |
+| dbt sources reading the *loaded* raw tables | **Wired on BigQuery** — the DuckDB target still reads the CSVs in place, deliberately, for fast credential-free CI |
+| Executed BigQuery run | **Done** — 56 windows backfilled, {{dbt_models}} models and {{dbt_tests}} tests green (see *Validation status*) |
 | Gemini review enrichment + labelled eval set | Planned |
 | NL→SQL agent (ceilings already built) | Planned |
 
