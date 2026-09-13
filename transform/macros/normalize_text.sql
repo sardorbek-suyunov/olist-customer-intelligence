@@ -97,34 +97,21 @@
 {% endmacro %}
 
 
-{#  Deterministic surrogate/attribute key. Kept local rather than pulling in
-    dbt_utils so the core models have no package dependency.
+{#  There is deliberately no local surrogate_key macro here.
 
-    Dispatched because md5() is not portable: DuckDB returns a hex VARCHAR,
-    BigQuery returns BYTES. Left undispatched, customer_sk would silently
-    become a BYTES column on BigQuery and any join against a STRING key would
-    fail at runtime rather than at compile time. #}
-{% macro surrogate_key(columns) %}
-    {{ return(adapter.dispatch('surrogate_key', 'olist_intelligence')(columns)) }}
-{% endmacro %}
+    There was one, hand-dispatched over md5() because the return type is not
+    portable -- DuckDB gives a hex VARCHAR, BigQuery gives BYTES, and an
+    undispatched call would have made customer_sk a BYTES column that fails at
+    runtime against any STRING join key. All of which dbt already solves:
+    bigquery__hash is to_hex(md5(...)) in the adapter, and
+    dbt_utils.generate_surrogate_key builds on it. The local copy was a second
+    implementation of shipped behaviour, which is how the other three bugs in
+    this project started. Models call dbt_utils.generate_surrogate_key directly.
 
-
-{% macro _concat_for_hash(columns) %}
-    {%- for c in columns %}
-    coalesce(cast({{ c }} as {{ dbt.type_string() }}), '<null>')
-    {%- if not loop.last %} || '|' || {% endif %}
-    {%- endfor %}
-{% endmacro %}
-
-
-{% macro duckdb__surrogate_key(columns) %}
-    md5({{ _concat_for_hash(columns) }})
-{% endmacro %}
-
-
-{% macro bigquery__surrogate_key(columns) %}
-    to_hex(md5({{ _concat_for_hash(columns) }}))
-{% endmacro %}
+    Note the two differ in their spelling: dbt_utils joins with '-' and
+    substitutes '_dbt_utils_surrogate_key_null_' for nulls, where the local macro
+    used '|' and '<null>'. Hash values therefore changed, which is why the swap
+    landed with a full refresh. #}
 
 
 {#  Portable "does this string contain a non-ASCII character?".

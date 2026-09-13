@@ -50,7 +50,7 @@ hashed as (
 
     select
         *,
-        {{ surrogate_key(['customer_zip_code_prefix', 'customer_city_normalized', 'customer_state_normalized']) }} as attribute_hash
+        {{ dbt_utils.generate_surrogate_key(['customer_zip_code_prefix', 'customer_city_normalized', 'customer_state_normalized']) }} as attribute_hash
     from observations
 
 ),

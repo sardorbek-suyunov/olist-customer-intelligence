@@ -25,8 +25,8 @@ with observations as (
         c.customer_unique_id,
         c.customer_id,
         o.order_purchase_timestamp as observed_at,
-        {{ surrogate_key(['c.customer_zip_code_prefix', 'c.customer_city', 'c.customer_state']) }} as raw_hash,
-        {{ surrogate_key(['c.customer_zip_code_prefix', 'c.customer_city_normalized', 'c.customer_state_normalized']) }} as normalized_hash
+        {{ dbt_utils.generate_surrogate_key(['c.customer_zip_code_prefix', 'c.customer_city', 'c.customer_state']) }} as raw_hash,
+        {{ dbt_utils.generate_surrogate_key(['c.customer_zip_code_prefix', 'c.customer_city_normalized', 'c.customer_state_normalized']) }} as normalized_hash
     from {{ ref('stg_customers') }} c
     inner join {{ ref('stg_orders') }} o
         on o.customer_id = c.customer_id

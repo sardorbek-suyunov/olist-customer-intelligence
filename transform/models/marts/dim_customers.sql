@@ -53,7 +53,7 @@ windowed as (
 )
 
 select
-    {{ surrogate_key(['customer_unique_id', 'version_number']) }} as customer_sk,
+    {{ dbt_utils.generate_surrogate_key(['customer_unique_id', 'version_number']) }} as customer_sk,
     customer_unique_id,
     version_number,
     customer_zip_code_prefix,
