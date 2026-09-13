@@ -36,6 +36,13 @@ data/slices/
 # The one committed replay slice: a 45 KB test fixture, so the loader tests do
 # not need the 123 MB source dataset.
 !ingestion/tests/fixtures/**/_manifest.json
+
+# Enrichment output. Committed, and for the same reason as the dashboard
+# snapshot rather than as an exception to the rule above: replay slices are
+# regenerable for free in minutes, these cost $3.19 and an API key. A fork with
+# neither should still build the aspect marts and run the eval. It doubles as the
+# cache, so a clone that loads it and re-runs spends nothing.
+!enrichment/data/*.parquet
 !package.json
 !package-lock.json
 credentials/

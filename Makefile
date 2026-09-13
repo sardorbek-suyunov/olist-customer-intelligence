@@ -75,6 +75,14 @@ gemini-check: ## Resolve the Gemini model against your key, e.g. make gemini-che
 enrich: ## Label review text. make enrich MODEL=<id> SAMPLE=2000 BATCH=20
 	python -m enrichment.enrich --model $(MODEL) --batch-size $(or $(BATCH),20) $(if $(SAMPLE),--sample $(SAMPLE),--all) --target $(TARGET)
 
+.PHONY: enrich-export
+enrich-export: ## Snapshot the enrichment tables to enrichment/data/*.parquet
+	python scripts/export_enrichment.py --duckdb-path $(or $(DB),transform/olist.duckdb)
+
+.PHONY: enrich-restore
+enrich-restore: ## Load the committed enrichment snapshot into a warehouse (free, no key)
+	python scripts/export_enrichment.py --duckdb-path $(or $(DB),transform/olist.duckdb) --restore
+
 .PHONY: dag-run
 dag-run: ## Execute one DAG run in Docker, e.g. make dag-run WINDOW=2016-09-01
 	cd orchestration/docker && WINDOW=$(WINDOW) DAG_ID=$(or $(DAG_ID),olist_backfill_monthly) docker compose run --rm dag-run
