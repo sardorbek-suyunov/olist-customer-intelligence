@@ -77,7 +77,12 @@ class CostRow:
     batch_size: int
     reviews: int
     input_tokens: int
+    # output_tokens is the BILLED total. candidates and thoughts are stored
+    # alongside it because recording only the first is what made the log disagree
+    # with the console, and a split that is written down stays auditable.
     output_tokens: int
+    candidates_tokens: int
+    thoughts_tokens: int
     cost_usd: float
     wall_seconds: float
 
@@ -125,7 +130,8 @@ class DuckDBStore:
             f"""create table if not exists {RAW_SCHEMA}.{COST_LOG} (
                    run_id varchar, model varchar, prompt_version varchar,
                    batch_size integer, reviews integer, input_tokens bigint,
-                   output_tokens bigint, cost_usd double, wall_seconds double,
+                   output_tokens bigint, candidates_tokens bigint,
+                   thoughts_tokens bigint, cost_usd double, wall_seconds double,
                    created_at timestamp)"""
         )
 
@@ -180,7 +186,7 @@ class DuckDBStore:
 
     def write_cost(self, row: CostRow) -> None:
         self.con.execute(
-            f"insert into {RAW_SCHEMA}.{COST_LOG} values (?,?,?,?,?,?,?,?,?,?)",
+            f"insert into {RAW_SCHEMA}.{COST_LOG} values (?,?,?,?,?,?,?,?,?,?,?,?)",
             [*asdict(row).values(), _now()],
         )
 
@@ -240,7 +246,8 @@ class BigQueryStore:
             f"""create table if not exists {self._fq(COST_LOG)} (
                     run_id string, model string, prompt_version string,
                     batch_size int64, reviews int64, input_tokens int64,
-                    output_tokens int64, cost_usd float64, wall_seconds float64,
+                    output_tokens int64, candidates_tokens int64,
+                    thoughts_tokens int64, cost_usd float64, wall_seconds float64,
                     created_at timestamp)""",
         ):
             self.client.query(ddl).result()

@@ -246,9 +246,22 @@ def main(argv: list[str] | None = None, client=None) -> int:
 
         if not todo:
             LOG.info("nothing to do: this run costs $0.00")
+            # Keywords, not position. The positional form silently accepted a
+            # wrong arity when the row gained its candidates/thoughts split, and
+            # a cost row is the last place to tolerate that.
             store.write_cost(
                 CostRow(
-                    uuid.uuid4().hex[:12], args.model, version, args.batch_size, 0, 0, 0, 0.0, 0.0
+                    run_id=uuid.uuid4().hex[:12],
+                    model=args.model,
+                    prompt_version=version,
+                    batch_size=args.batch_size,
+                    reviews=0,
+                    input_tokens=0,
+                    output_tokens=0,
+                    candidates_tokens=0,
+                    thoughts_tokens=0,
+                    cost_usd=0.0,
+                    wall_seconds=0.0,
                 )
             )
             return 0
@@ -284,7 +297,16 @@ def main(argv: list[str] | None = None, client=None) -> int:
             client = GeminiClient(args.model, thinking_budget=args.thinking_budget)
 
         run_id = uuid.uuid4().hex[:12]
-        totals = {"in": 0, "out": 0, "cost": 0.0, "wall": 0.0, "labelled": 0, "bad": 0}
+        totals = {
+            "in": 0,
+            "out": 0,
+            "cand": 0,
+            "think": 0,
+            "cost": 0.0,
+            "wall": 0.0,
+            "labelled": 0,
+            "bad": 0,
+        }
         calls = 0
         started = time.monotonic()
 
@@ -321,6 +343,8 @@ def main(argv: list[str] | None = None, client=None) -> int:
             calls += 1
             totals["in"] += usage.input_tokens
             totals["out"] += usage.output_tokens
+            totals["cand"] += usage.candidates_tokens
+            totals["think"] += usage.thoughts_tokens
             totals["wall"] += usage.wall_seconds
             totals["cost"] += cost_usd(
                 args.model, usage.input_tokens, usage.output_tokens, args.batch_api
@@ -358,6 +382,8 @@ def main(argv: list[str] | None = None, client=None) -> int:
                 reviews=totals["labelled"],
                 input_tokens=totals["in"],
                 output_tokens=totals["out"],
+                candidates_tokens=totals["cand"],
+                thoughts_tokens=totals["think"],
                 cost_usd=totals["cost"],
                 wall_seconds=time.monotonic() - started,
             )

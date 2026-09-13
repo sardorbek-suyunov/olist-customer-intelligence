@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from enrichment import taxonomy  # noqa: E402
-from enrichment.store import COST_LOG, QUARANTINE, RAW_SCHEMA, RESULTS  # noqa: E402
+from enrichment.store import COST_LOG, MAP, QUARANTINE, RAW_SCHEMA, RESULTS  # noqa: E402
 
 
 def read_run(path: Path) -> dict:
@@ -35,9 +35,15 @@ def read_run(path: Path) -> dict:
 
     con = duckdb.connect(str(path), read_only=True)
     try:
+        # Keyed on review_id, joined through the map, NOT on content_hash. The
+        # hash includes the model name -- correctly, since a different model is a
+        # different answer -- so two runs of different models share no hashes at
+        # all and a hash join reports "nothing to compare" rather than comparing.
+        # It did exactly that, silently, on the first cross-model A/B.
         rows = con.execute(
-            f"select content_hash, aspects, sentiment, severity, no_content "
-            f"from {RAW_SCHEMA}.{RESULTS}"
+            f"""select m.review_id, r.aspects, r.sentiment, r.severity, r.no_content
+                from {RAW_SCHEMA}.{MAP} m
+                join {RAW_SCHEMA}.{RESULTS} r using (content_hash)"""
         ).fetchall()
         quarantined = con.execute(
             f"select reason, count(*) from {RAW_SCHEMA}.{QUARANTINE} group by reason"
@@ -73,7 +79,7 @@ def report(run: dict) -> Counter:
     quarantined = sum(run["quarantine"].values())
 
     print(f"model        {run['model']}   batch size {run['batch_size']}")
-    print(f"labelled     {n:,} distinct texts")
+    print(f"labelled     {n:,} reviews")
     print(f"quarantined  {quarantined}" + (f"  {run['quarantine']}" if quarantined else ""))
     print(
         f"tokens       {run['input_tokens']:,} in / {run['output_tokens']:,} out"
@@ -171,15 +177,12 @@ def compare(a: dict, b: dict) -> None:
         if not count:
             continue
         print(
-            f"    batch {run['batch_size']:>2}  input {run['input_tokens'] / count:7.1f}"
+            f"    {run['model']:<24} input {run['input_tokens'] / count:7.1f}"
             f"  output {run['output_tokens'] / count:6.1f}"
             f"  ${run['cost_usd'] / count * 1000:6.3f}/1k"
             f"  {run['wall_seconds'] / count:5.2f}s"
         )
-    print(
-        f"  quarantine    batch {a['batch_size']}: {sum(a['quarantine'].values())}"
-        f"   batch {b['batch_size']}: {sum(b['quarantine'].values())}"
-    )
+    print(f"  quarantine    {sum(a['quarantine'].values())} vs {sum(b['quarantine'].values())}")
 
 
 def main(argv: list[str] | None = None) -> int:

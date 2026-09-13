@@ -237,13 +237,14 @@ def test_cache_hit_means_no_call_and_no_cost(tmp_path, monkeypatch) -> None:
     try:
         totals = store.totals()
         runs = store.con.execute(
-            "select cost_usd, input_tokens, output_tokens, reviews "
+            "select cost_usd, input_tokens, output_tokens, reviews, "
+            "candidates_tokens, thoughts_tokens "
             "from olist_raw.enrichment_cost_log order by created_at"
         ).fetchall()
     finally:
         store.close()
 
-    assert runs[-1] == (0.0, 0, 0, 0), "the re-run must log zero cost and zero tokens"
+    assert runs[-1] == (0.0, 0, 0, 0, 0, 0), "the re-run must log zero cost and zero tokens"
     assert totals["cost_usd"] == pytest.approx(runs[0][0])
 
 
