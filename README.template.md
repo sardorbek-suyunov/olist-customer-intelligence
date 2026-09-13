@@ -341,6 +341,44 @@ says "compile-checked" and means "works".
 
 ---
 
+## One failure mode, five times
+
+Every bug in this project that survived review shares a shape: **a status
+reported by something other than the thing being measured.** Not a wrong answer —
+a correct answer to a question nobody meant to ask. Each one was found by
+executing something, and each was invisible until then.
+
+| The claim | What was actually measured | How it failed |
+|---|---|---|
+| `job.output_rows` reports what landed in the partition | Rows *that job wrote*. A second load of the same slice returns the same number whether the partition was replaced or doubled. | The one function whose purpose was verifying idempotency could not distinguish the two states it existed to tell apart. |
+| The README reports the test count | A number typed by hand, once, from a report about the data. The README said 68, dbt reports {{dbt_tests}}, and CI's own comment said 67. | Three sources, three different answers, none of them reading from dbt. |
+| `validate_bigquery.py` proves the normalization macro works on BigQuery | Its own transcription of that macro — which stopped describing the pipeline the moment the models moved to `dbt_utils` and its `-` separator. | The validator would have reported success over a broken pipeline. It had already happened once before, with the same file. |
+| The Status table reports the DAGs as "import-verified in CI" | An assertion written in a document. The job had never passed: it failed at its install step on the very first push, because the requirements file contradicted the constraints file it tells you to use. | A verification claim about a verification that had never run. |
+| `AIRFLOW_EXIT=0` reports that Airflow installed | The **outer** shell's `$?`. A heredoc consumed the backslash, so the exit code came from the previous command rather than from pip. | Airflow was reported installed while `import airflow` raised `ModuleNotFoundError`. The real result was `ResolutionImpossible`. |
+
+The last one is the clearest, because the gap is widest: a green status printed
+while the thing it described did not exist.
+
+The fix is identical in all five cases, and it is not "be more careful":
+
+- **Count from the table, not from the job** — a partition-pruned `COUNT(*)`.
+- **Compile the macro, never transcribe it** — `dbt compile` renders what the
+  pipeline runs.
+- **Generate the document, do not maintain it** — the README is rendered from
+  `docs/figures.json`, so there is no second copy left to disagree.
+- **Let the job report its own status** — the CI badge, not a sentence claiming
+  the job passes.
+- **Verify the exit code with something other than the shell that produced it** —
+  and when a status looks too clean, check the thing itself.
+
+Every control in this repository is an instance of that: the completion marker
+that a slice writes only after every table lands, the parity test that re-derives
+12,818 strings through the macro instead of trusting a comment, the ceiling
+enforced by BigQuery rather than by a prompt. The pattern is worth more than any
+individual fix, which is why it is written down here rather than left implicit.
+
+---
+
 ## Schedule
 
 The extract covers **2016-09-04 → 2018-10-17**. Backfilling that daily would be
