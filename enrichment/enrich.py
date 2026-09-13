@@ -171,11 +171,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path(os.environ.get("DBT_DUCKDB_PATH", ROOT / "transform" / "olist.duckdb")),
     )
     parser.add_argument(
-        "--batch-api",
-        action="store_true",
-        help="price the run at Batch API rates (half of standard)",
-    )
-    parser.add_argument(
         "--max-calls", type=int, default=None, help="stop after N API calls; a crude ceiling"
     )
     parser.add_argument(
@@ -346,8 +341,17 @@ def main(argv: list[str] | None = None, client=None) -> int:
             totals["cand"] += usage.candidates_tokens
             totals["think"] += usage.thoughts_tokens
             totals["wall"] += usage.wall_seconds
+            # Standard rates, always. There was a --batch-api flag here that
+            # halved the logged cost, and it changed the PRICE in the log without
+            # changing the ENDPOINT being called -- this module calls synchronous
+            # generateContent, which bills at standard rates. It made one pilot
+            # log $0.08 against $0.16 actually billed.
+            #
+            # The real Batch API is a different, asynchronous submit-and-poll
+            # flow and is genuinely half price. It is not implemented here, so
+            # its pricing is not claimed here.
             totals["cost"] += cost_usd(
-                args.model, usage.input_tokens, usage.output_tokens, args.batch_api
+                args.model, usage.input_tokens, usage.output_tokens, batch=False
             )
             totals["labelled"] += len(labelled)
             totals["bad"] += len(quarantined)
