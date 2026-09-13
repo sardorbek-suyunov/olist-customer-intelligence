@@ -75,6 +75,26 @@ distinct location strings in the source with their Python-normalized form;
 `assert_normalize_macro_matches_python` re-derives each one through the macro in
 the target's own SQL dialect and fails the build on any disagreement.
 
+## 6. Review grain, and how much of the corpus carries text
+
+`review_id` is **not unique**, which matters for exactly the same reason
+`customer_id` did: a key that looks like a key and is not one silently
+changes the grain of anything joined on it.
+
+- `order_reviews` rows: **99,224**, distinct `review_id`: **98,410**
+- Rows sharing a `review_id`: **1,603** across **789** ids
+  Within every such group the text and the score are identical; only `order_id` differs,
+  so one review is attached to several orders. Enrichment keys on the TEXT,
+  so collapsing on `review_id` loses no label -- but any join to orders must
+  go through `order_id`.
+
+- Reviews carrying comment text: **40,950** of 99,224 (**41.3%**)
+- Distinct orders with review text: **40,809** of 99,441 orders (**41.0%**)
+- Distinct comment texts: **35,616** -> a content-addressed cache answers **5,334** duplicates
+
+**Consequence.** Any mart built on review aspects covers a minority of orders.
+Coverage is therefore carried as a column rather than mentioned in a caveat.
+
 ## 6. Non-ASCII survivors in the source
 
 Two different things get called mojibake, so both are counted. *Non-ASCII* is any

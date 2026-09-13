@@ -367,6 +367,62 @@ def main() -> None:
     w("the target's own SQL dialect and fails the build on any disagreement.")
     w("")
 
+    # ---- 6. review grain ------------------------------------------------
+    reviews = f["order_reviews"]
+    review_text = reviews.review_comment_message.fillna("").str.strip()
+    with_text = reviews[review_text != ""]
+
+    w("## 6. Review grain, and how much of the corpus carries text")
+    w("")
+    w("`review_id` is **not unique**, which matters for exactly the same reason")
+    w("`customer_id` did: a key that looks like a key and is not one silently")
+    w("changes the grain of anything joined on it.")
+    w("")
+    w(
+        "- `order_reviews` rows: **{}**, distinct `review_id`: **{}**".format(
+            f"{fig('review_rows', len(reviews)):,}",
+            f"{fig('review_ids_distinct', reviews.review_id.nunique()):,}",
+        )
+    )
+    duplicated = reviews[reviews.review_id.duplicated(keep=False)]
+    groups = duplicated.groupby("review_id")
+    w(
+        "- Rows sharing a `review_id`: **{}** across **{}** ids".format(
+            f"{fig('review_id_duplicate_rows', len(duplicated)):,}",
+            f"{fig('review_id_duplicate_groups', groups.ngroups):,}",
+        )
+    )
+    w("  Within every such group the text and the score are identical; only `order_id` differs,")
+    w("  so one review is attached to several orders. Enrichment keys on the TEXT,")
+    w("  so collapsing on `review_id` loses no label -- but any join to orders must")
+    w("  go through `order_id`.")
+    w("")
+    w(
+        "- Reviews carrying comment text: **{}** of {} (**{}%**)".format(
+            f"{fig('reviews_with_text', len(with_text)):,}",
+            f"{len(reviews):,}",
+            f"{fig('reviews_with_text_pct', round(len(with_text) / len(reviews) * 100, 1))}",
+        )
+    )
+    w(
+        "- Distinct orders with review text: **{}** of {} orders (**{}%**)".format(
+            f"{fig('orders_with_review_text', with_text.order_id.nunique()):,}",
+            f"{len(f['orders']):,}",
+            f"{fig('orders_with_review_text_pct', round(with_text.order_id.nunique() / len(f['orders']) * 100, 1))}",
+        )
+    )
+    w(
+        "- Distinct comment texts: **{}** -> a content-addressed cache answers"
+        " **{}** duplicates".format(
+            f"{fig('review_texts_distinct', review_text[review_text != ''].nunique()):,}",
+            f"{fig('review_text_duplicates', len(with_text) - review_text[review_text != ''].nunique()):,}",
+        )
+    )
+    w("")
+    w("**Consequence.** Any mart built on review aspects covers a minority of orders.")
+    w("Coverage is therefore carried as a column rather than mentioned in a caveat.")
+    w("")
+
     # ---- 6. mojibake ----------------------------------------------------
     w("## 6. Non-ASCII survivors in the source")
     w("")

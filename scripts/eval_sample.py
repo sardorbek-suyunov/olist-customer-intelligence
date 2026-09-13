@@ -86,28 +86,53 @@ def design(labels: dict[str, dict], size: int, random_share: float, seed: int) -
 
     random_ids = set(rng.sample(ids, min(n_random, len(ids))))
 
-    # Targeted: rarest surviving aspects first, so the scarce slots go where a
-    # random draw would have returned nothing.
+    # Targeted: fill DEFICITS, not equal quotas.
+    #
+    # The first version handed every aspect the same share of the targeted
+    # stratum. That wasted slots on aspects the random stratum had already
+    # covered while starving the rare ones, and left five aspects unscored with
+    # the corpus holding plenty of examples of each. The deficit is what matters:
+    # how many positives an aspect still needs to reach the floor.
+    #
+    # Greedy set-cover over the deficits. Each pick is the review that closes the
+    # most remaining need, so co-occurrence is exploited rather than merely hoped
+    # for -- one review carrying three short aspects is worth three carrying one.
     remaining = [i for i in ids if i not in random_ids]
     rng.shuffle(remaining)
-    by_rarity = sorted(keep, key=lambda a: counts[a])
+
+    floor = taxonomy.EVAL_MIN_POSITIVES
+    deficit = {
+        a: max(0, floor - sum(1 for i in random_ids if a in labels[i]["aspects"])) for a in keep
+    }
 
     targeted: set[str] = set()
-    per_aspect_quota = max(1, n_targeted // max(len(by_rarity), 1))
-    for aspect in by_rarity:
-        taken = 0
+    pool = [(i, set(labels[i]["aspects"]) & set(keep)) for i in remaining]
+    pool = [(i, a) for i, a in pool if a]
+
+    while len(targeted) < n_targeted and any(deficit.values()):
+        best, best_gain = None, 0
+        for review_id, aspects in pool:
+            if review_id in targeted:
+                continue
+            gain = sum(1 for a in aspects if deficit.get(a, 0) > 0)
+            if gain > best_gain:
+                best, best_gain = review_id, gain
+                if gain == len(deficit):
+                    break
+        if best is None:
+            break
+        targeted.add(best)
+        for a in dict(pool)[best]:
+            if deficit.get(a, 0) > 0:
+                deficit[a] -= 1
+
+    # Any slots left over go to a plain random top-up, so the targeted stratum
+    # does not quietly become smaller than advertised.
+    if len(targeted) < n_targeted:
         for review_id in remaining:
             if len(targeted) >= n_targeted:
                 break
-            if review_id in targeted:
-                continue
-            if aspect in labels[review_id]["aspects"]:
-                targeted.add(review_id)
-                taken += 1
-                if taken >= per_aspect_quota:
-                    break
-        if len(targeted) >= n_targeted:
-            break
+            targeted.add(review_id)
 
     selected = random_ids | targeted
     return {
