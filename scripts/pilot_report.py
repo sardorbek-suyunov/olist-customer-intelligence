@@ -147,12 +147,34 @@ def compare(a: dict, b: dict) -> None:
         for aspect, count in disagreements.most_common(8):
             print(f"    {aspect:<26} {count:>5} ({count / n:.1%} of shared)")
 
-    cheap, dear = sorted((a, b), key=lambda r: r["input_tokens"])
-    if dear["input_tokens"]:
+    # Is one arm systematically thinner than the other? That is what a position
+    # or attention effect from packing 20 reviews into one context would look
+    # like, and it is a different question from whether the two arms agree.
+    mean_a = sum(len(a["labels"][k]["aspects"]) for k in shared) / n
+    mean_b = sum(len(b["labels"][k]["aspects"]) for k in shared) / n
+    only_a = sum(
+        len(set(a["labels"][k]["aspects"]) - set(b["labels"][k]["aspects"])) for k in shared
+    )
+    only_b = sum(
+        len(set(b["labels"][k]["aspects"]) - set(a["labels"][k]["aspects"])) for k in shared
+    )
+    print(f"\n  mean aspects/review   batch {a['batch_size']}: {mean_a:.3f}", end="")
+    print(f"   batch {b['batch_size']}: {mean_b:.3f}   delta {mean_b - mean_a:+.3f}")
+    print(f"  aspect-instances only in one arm   {only_a} vs {only_b}")
+    print("  (symmetric counts and a delta near zero mean label noise, not degradation)")
+
+    # Per REVIEW, always. Totals compare runs of different sizes and say nothing
+    # -- the first version of this printed 2.9x where the real input ratio is
+    # 10.8x, because one arm covered 1,866 reviews and the other 500.
+    print("\n  per review:")
+    for run, count in ((a, len(a["labels"])), (b, len(b["labels"]))):
+        if not count:
+            continue
         print(
-            f"\n  input tokens  batch {cheap['batch_size']}: {cheap['input_tokens']:,}"
-            f"   batch {dear['batch_size']}: {dear['input_tokens']:,}"
-            f"   ({dear['input_tokens'] / max(cheap['input_tokens'], 1):.1f}x)"
+            f"    batch {run['batch_size']:>2}  input {run['input_tokens'] / count:7.1f}"
+            f"  output {run['output_tokens'] / count:6.1f}"
+            f"  ${run['cost_usd'] / count * 1000:6.3f}/1k"
+            f"  {run['wall_seconds'] / count:5.2f}s"
         )
     print(
         f"  quarantine    batch {a['batch_size']}: {sum(a['quarantine'].values())}"
