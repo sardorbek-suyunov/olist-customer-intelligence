@@ -331,3 +331,92 @@ def test_max_calls_is_a_spend_ceiling(tmp_path, monkeypatch) -> None:
     finally:
         store.close()
     assert stored == 2, "only the completed batch is stored"
+
+
+# ---------------------------------------------------------------------------
+# the spend guard
+# ---------------------------------------------------------------------------
+def test_run_is_refused_when_the_projection_exceeds_the_budget(tmp_path, monkeypatch) -> None:
+    """
+    maximum_bytes_billed rejects a query before it bills. This refuses a run
+    before it spends, and the refusal is watched firing rather than assumed.
+    """
+    db = tmp_path / "refused.duckdb"
+    reviews = [(f"r{i}", f"texto {i}") for i in range(100)]
+    monkeypatch.setattr("enrichment.enrich.load_reviews", lambda *_, **__: reviews)
+
+    client = ScriptedClient([json.dumps([answer(1, [])])] * 100)
+    code = main(
+        [
+            "--model",
+            MODEL,
+            "--sample",
+            "100",
+            "--batch-size",
+            "20",
+            "--budget-usd",
+            "0.01",
+            "--usd-per-1k",
+            "5.0",
+            "--duckdb-path",
+            str(db),
+        ],
+        client=client,
+    )
+
+    assert code == 3
+    assert client.calls == [], "a refused run must not make a single call"
+
+
+def test_run_aborts_when_actual_spend_crosses_the_budget(tmp_path, monkeypatch) -> None:
+    """The ceiling that does not depend on the projection being right."""
+    db = tmp_path / "aborted.duckdb"
+    reviews = [(f"r{i}", f"texto {i}") for i in range(60)]
+    monkeypatch.setattr("enrichment.enrich.load_reviews", lambda *_, **__: reviews)
+
+    priced = "gemini-3.7-flash"
+    expensive = Usage(input_tokens=1_000_000, output_tokens=1_000_000, wall_seconds=0.1)
+    client = ScriptedClient(
+        [json.dumps([answer(i, []) for i in range(1, 21)]) for _ in range(3)], expensive
+    )
+
+    assert (
+        main(
+            [
+                "--model",
+                priced,
+                "--sample",
+                "60",
+                "--batch-size",
+                "20",
+                "--budget-usd",
+                "1.00",
+                "--duckdb-path",
+                str(db),
+            ],
+            client=client,
+        )
+        == 0
+    )
+
+    # One batch costs $4.50 at those rates, so it must stop after the first.
+    assert len(client.calls) == 1, "must stop as soon as spend crosses the ceiling"
+
+
+def test_thinking_tokens_count_as_billed_output() -> None:
+    """
+    The bug that made the log disagree with the console. Gemini bills thoughts at
+    the output rate and reports them in a separate field; counting candidates
+    alone undercounted billed output fivefold.
+    """
+    usage = Usage(
+        input_tokens=100,
+        output_tokens=4504,
+        wall_seconds=1.0,
+        candidates_tokens=730,
+        thoughts_tokens=3774,
+    )
+    assert usage.output_tokens == usage.candidates_tokens + usage.thoughts_tokens
+    charged = cost_usd("gemini-3.7-flash", usage.input_tokens, usage.output_tokens)
+    candidates_only = cost_usd("gemini-3.7-flash", usage.input_tokens, usage.candidates_tokens)
+    assert charged > candidates_only * 4

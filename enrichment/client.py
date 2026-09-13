@@ -32,11 +32,21 @@ RETRYABLE = ("429", "500", "502", "503", "504", "RESOURCE_EXHAUSTED", "UNAVAILAB
 
 @dataclass(frozen=True)
 class Usage:
-    """What the API says it processed. Never what we guessed it would."""
+    """
+    What the API says it processed. Never what we guessed it would.
+
+    `output_tokens` is candidates PLUS thoughts, because Gemini 3.x bills both at
+    the output rate and reports them separately. Recording candidates alone
+    undercounted billed output by 5x on a batch of 20, and the token log said
+    $0.66 where the console said $1.39. The log is a self-report; the console is
+    the thing -- so the log now reports what the console charges for.
+    """
 
     input_tokens: int
     output_tokens: int
     wall_seconds: float
+    candidates_tokens: int = 0
+    thoughts_tokens: int = 0
 
 
 class GeminiError(RuntimeError):
@@ -110,19 +120,28 @@ def list_models(client) -> list[str]:
 class GeminiClient:
     """Labels a batch of reviews and reports what it cost."""
 
-    def __init__(self, model: str, max_attempts: int = 6, client=None) -> None:
+    def __init__(
+        self, model: str, max_attempts: int = 6, client=None, thinking_budget: int | None = None
+    ) -> None:
         self.model = model
         self.max_attempts = max_attempts
+        self.thinking_budget = thinking_budget
         self._client = client or make_client()
 
     def generate(self, prompt: str, schema: dict) -> tuple[str, Usage]:
         from google.genai import types
 
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=0.0,
-        )
+        options: dict = {
+            "response_mime_type": "application/json",
+            "response_schema": schema,
+            "temperature": 0.0,
+        }
+        if self.thinking_budget is not None:
+            # Thinking is on by default and dominates the bill: 3,774 thought
+            # tokens against 730 of answer on a batch of 20. Whether turning it
+            # off costs accuracy is an eval question, not a cost question.
+            options["thinking_config"] = types.ThinkingConfig(thinking_budget=self.thinking_budget)
+        config = types.GenerateContentConfig(**options)
 
         last: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
@@ -143,10 +162,14 @@ class GeminiClient:
 
             elapsed = time.monotonic() - started
             meta = response.usage_metadata
+            candidates = meta.candidates_token_count or 0
+            thoughts = meta.thoughts_token_count or 0
             return response.text, Usage(
                 input_tokens=meta.prompt_token_count or 0,
-                output_tokens=(meta.candidates_token_count or 0),
+                output_tokens=candidates + thoughts,
                 wall_seconds=elapsed,
+                candidates_tokens=candidates,
+                thoughts_tokens=thoughts,
             )
 
         raise GeminiError(f"exhausted {self.max_attempts} attempts: {last}")

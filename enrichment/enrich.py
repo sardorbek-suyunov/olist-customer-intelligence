@@ -176,7 +176,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="price the run at Batch API rates (half of standard)",
     )
     parser.add_argument(
-        "--max-calls", type=int, default=None, help="stop after N API calls; a spend ceiling"
+        "--max-calls", type=int, default=None, help="stop after N API calls; a crude ceiling"
+    )
+    parser.add_argument(
+        "--budget-usd",
+        type=float,
+        default=None,
+        help="hard ceiling. Refuses to start if the projection exceeds it, and aborts "
+        "mid-run the moment actual spend crosses it.",
+    )
+    parser.add_argument(
+        "--usd-per-1k",
+        type=float,
+        default=None,
+        help="measured cost per 1,000 reviews for the pre-flight projection; "
+        "take it from a calibration run rather than guessing.",
+    )
+    parser.add_argument(
+        "--thinking-budget",
+        type=int,
+        default=None,
+        help="0 disables thinking. Thinking tokens bill at the output rate and "
+        "dominated the first pilot's cost.",
     )
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args(argv)
@@ -232,8 +253,35 @@ def main(argv: list[str] | None = None, client=None) -> int:
             )
             return 0
 
+        # Pre-flight. maximum_bytes_billed rejects a query before it bills; this
+        # refuses a run before it spends, on the same principle -- a ceiling
+        # enforced by the tool rather than by whoever is watching.
+        if args.budget_usd is not None and args.usd_per_1k:
+            projected = len(todo) / 1000 * args.usd_per_1k
+            LOG.info(
+                "projected %.2f USD for %s reviews at %.3f/1k (budget %.2f)",
+                projected,
+                f"{len(todo):,}",
+                args.usd_per_1k,
+                args.budget_usd,
+            )
+            if projected > args.budget_usd:
+                LOG.error(
+                    "REFUSING TO START: projected $%.2f exceeds --budget-usd $%.2f. "
+                    "Reduce --sample, lower the rate with --thinking-budget 0, or "
+                    "raise the budget deliberately.",
+                    projected,
+                    args.budget_usd,
+                )
+                return 3
+        elif args.budget_usd is not None:
+            LOG.warning(
+                "--budget-usd given without --usd-per-1k: no pre-flight projection is "
+                "possible, but the run still aborts the moment actual spend crosses it"
+            )
+
         if client is None:
-            client = GeminiClient(args.model)
+            client = GeminiClient(args.model, thinking_budget=args.thinking_budget)
 
         run_id = uuid.uuid4().hex[:12]
         totals = {"in": 0, "out": 0, "cost": 0.0, "wall": 0.0, "labelled": 0, "bad": 0}
@@ -279,6 +327,17 @@ def main(argv: list[str] | None = None, client=None) -> int:
             )
             totals["labelled"] += len(labelled)
             totals["bad"] += len(quarantined)
+
+            # The ceiling that does not depend on a projection being right.
+            if args.budget_usd is not None and totals["cost"] >= args.budget_usd:
+                LOG.error(
+                    "STOPPING: spent $%.4f, at or over --budget-usd $%.2f. "
+                    "%s reviews labelled and stored; re-run to resume.",
+                    totals["cost"],
+                    args.budget_usd,
+                    f"{totals['labelled']:,}",
+                )
+                break
 
             if calls % 10 == 0 or offset + args.batch_size >= len(todo):
                 LOG.info(
