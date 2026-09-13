@@ -33,7 +33,7 @@ dbt-test: ## Run dbt tests only
 
 .PHONY: test
 test: ## Run the Python unit tests
-	python -m pytest analytics/tests ingestion/tests -q
+	python -m pytest analytics/tests ingestion/tests enrichment/tests -q
 
 .PHONY: test-dags
 test-dags: ## Run DAG integrity tests (needs the Airflow environment)
@@ -67,9 +67,17 @@ readme: ## Render README.md from README.template.md and the measured figures
 readme-check: ## Fail if the committed README disagrees with the figures
 	python scripts/render_readme.py --check
 
+.PHONY: gemini-check
+gemini-check: ## Resolve the Gemini model against your key, e.g. make gemini-check MODEL=<id>
+	python scripts/check_gemini.py $(if $(MODEL),--model $(MODEL),)
+
+.PHONY: enrich
+enrich: ## Label review text. make enrich MODEL=<id> SAMPLE=2000 BATCH=20
+	python -m enrichment.enrich --model $(MODEL) --batch-size $(or $(BATCH),20) $(if $(SAMPLE),--sample $(SAMPLE),--all) --target $(TARGET)
+
 .PHONY: dag-run
 dag-run: ## Execute one DAG run in Docker, e.g. make dag-run WINDOW=2016-09-01
-	cd orchestration/docker && WINDOW=$(WINDOW) DAG_ID=$(or $(DAG_ID),olist_backfill_monthly) \n		docker compose run --rm dag-run
+	cd orchestration/docker && WINDOW=$(WINDOW) DAG_ID=$(or $(DAG_ID),olist_backfill_monthly) docker compose run --rm dag-run
 
 .PHONY: dag-ui
 dag-ui: ## Airflow UI at localhost:8080 against the mounted project
@@ -94,13 +102,13 @@ docs: ## Build and serve the dbt documentation site
 
 .PHONY: lint
 lint: ## Lint Python
-	ruff check analytics dashboard ingestion orchestration scripts
-	ruff format --check analytics dashboard ingestion orchestration scripts
+	ruff check analytics dashboard enrichment ingestion orchestration scripts
+	ruff format --check analytics dashboard enrichment ingestion orchestration scripts
 
 .PHONY: fmt
 fmt: ## Auto-format Python
-	ruff check --fix analytics dashboard ingestion orchestration scripts
-	ruff format analytics dashboard ingestion orchestration scripts
+	ruff check --fix analytics dashboard enrichment ingestion orchestration scripts
+	ruff format analytics dashboard enrichment ingestion orchestration scripts
 
 .PHONY: clean
 clean: ## Remove build artefacts

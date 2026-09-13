@@ -24,10 +24,19 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Ruff
         run: |
-          ruff check analytics dashboard ingestion orchestration scripts
-          ruff format --check analytics dashboard ingestion orchestration scripts
+          ruff check analytics dashboard enrichment ingestion orchestration scripts
+          ruff format --check analytics dashboard enrichment ingestion orchestration scripts
       - name: Unit tests
-        run: python -m pytest analytics/tests ingestion/tests -q
+        # enrichment/tests run here on purpose: the whole pipeline except the
+        # HTTP call is exercised offline, so CI needs no Gemini key.
+        run: python -m pytest analytics/tests ingestion/tests enrichment/tests -q
+      # `make` is installed on the runner but not on the development machine, so
+      # these recipes had only ever been read. -n expands and prints them without
+      # executing, which catches a mangled line continuation or a typo'd variable
+      # -- both of which had already happened and gone unnoticed.
+      - name: Makefile recipes expand
+        run: make -n help lint test profile readme readme-check replay backfill verify-slices load-static validate-bq snapshot enrich gemini-check dag-run
+
       - name: dbt parse
         working-directory: transform
         env:
