@@ -13,7 +13,7 @@ An end-to-end batch data platform over the [Brazilian E-Commerce Public Dataset
 by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 → time-sliced replay → warehouse → tested dimensional marts → dashboard.
 
-[![CI](https://github.com/USER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/USER/REPO/actions/workflows/ci.yml)
+[![CI](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml)
 
 **{{dbt_tests}} dbt tests · {{python_tests}} Python tests · full build in ~5s on DuckDB · $0 to run**
 
