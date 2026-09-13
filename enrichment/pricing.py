@@ -35,9 +35,24 @@ class Price:
 MODELS: dict[str, Price] = {
     "gemini-3.8-flash": Price(0.75, 3.75, 0.375, 1.875, "doubles 2027-01-01"),
     "gemini-3.7-flash": Price(0.75, 3.75, 0.375, 1.875, "doubles 2027-01-01"),
+    "gemini-3.6-flash": Price(0.75, 3.75, 0.375, 1.875),
     "gemini-3.5-flash": Price(1.50, 9.00, 0.75, 4.50),
-    "gemini-2.5-flash": Price(0.30, 2.50, 0.15, 1.25, "older generation"),
+    "gemini-3.1-flash-lite": Price(0.25, 1.50, 0.125, 0.75),
+    "gemini-3.5-flash-lite": Price(0.30, 2.50, 0.15, 1.25),
+    "gemini-2.5-flash-lite": Price(0.10, 0.40, 0.05, 0.20),
 }
+
+# Thinking tokens bill at the OUTPUT rate and are reported separately by the API,
+# in thoughts_token_count. They are not a surcharge, they are output -- which is
+# why enrichment.client sums candidates and thoughts before anything reaches
+# cost_usd(). Recording candidates alone is what made the token log disagree with
+# the billing console.
+
+# gemini-2.5-flash was listed here at 0.30/2.50 on an assumption that turned out
+# to be the 3.5-flash-lite rate. Removed rather than corrected: an unpriced model
+# logs 0.00 and warns, and a guess that happens to be a real price for a
+# different model is precisely the kind of plausible-looking wrong number this
+# module exists to avoid.
 
 
 def price_for(model: str) -> Price | None:

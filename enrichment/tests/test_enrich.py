@@ -174,9 +174,14 @@ def test_variant_models_are_not_priced_as_their_full_size_sibling() -> None:
     log would have carried a wrong number that looked entirely plausible. An
     unpriced model logs 0.00 and warns; a mispriced one says nothing.
     """
-    assert price_for("gemini-3.5-flash") is not None
-    assert price_for("gemini-3.5-flash-lite") is None
+    full = price_for("gemini-3.5-flash")
+    lite = price_for("gemini-3.5-flash-lite")
+    assert full is not None and lite is not None
+    assert lite.standard_out < full.standard_out, "lite must carry its own, lower rate"
+
+    # Still unpriced, and visibly so rather than inheriting a sibling's number.
     assert price_for("gemini-2.5-flash-image") is None
+    assert price_for("gemini-3.8-flash-preview") is None
 
 
 def test_batch_pricing_is_half_of_standard() -> None:
