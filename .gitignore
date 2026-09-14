@@ -30,6 +30,13 @@ data/slices/
 !.devcontainer/devcontainer.json
 # Provenance for the committed dashboard snapshot -- row counts and build time.
 !dashboard/data/_manifest.json
+# The demo's precomputed answers. Committed on purpose: they are what makes the
+# public demo useful with no API key, no warehouse and no spend.
+!dashboard/data/demo_examples.json
+# ...but NOT the spend ledger. That is per-deployment runtime state, and a
+# committed copy would reset every deployment's daily total to whatever was
+# true on the machine that last ran it.
+dashboard/data/demo_ledger.json
 # Generated, but committed on purpose: it is what README.md is rendered from,
 # and CI compares a fresh render against the committed one.
 !docs/figures.json
@@ -43,6 +50,11 @@ data/slices/
 # neither should still build the aspect marts and run the eval. It doubles as the
 # cache, so a clone that loads it and re-runs spends nothing.
 !enrichment/data/*.parquet
+# The eval sample design and its scores. Committed because docs/figures.json is
+# rendered from them and CI re-renders the README: a figure whose source is not
+# in the repo cannot be checked for drift, which is the whole point of the
+# generated README.
+!enrichment/eval/*.json
 !package.json
 !package-lock.json
 credentials/
