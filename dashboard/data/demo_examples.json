@@ -1,0 +1,398 @@
+{
+  "generated_at": "2026-09-13T16:56:04+00:00",
+  "source": "built at release time; the demo serves these with zero API and zero scan",
+  "examples": [
+    {
+      "id": "coverage_by_segment",
+      "question": "How many of each segment's orders actually leave review text?",
+      "note": "The question to ask first. Coverage runs from 37% to 44% depending on the segment, so any aspect rate compared across segments is comparing over different-sized denominators.",
+      "sql": "select distinct\n                rfm_segment,\n                customers_in_segment,\n                orders_in_segment,\n                orders_with_review_text,\n                review_text_coverage_pct\n            from main_marts.fct_segment_aspect\n            order by review_text_coverage_pct desc",
+      "columns": [
+        "rfm_segment",
+        "customers_in_segment",
+        "orders_in_segment",
+        "orders_with_review_text",
+        "review_text_coverage_pct"
+      ],
+      "rows": [
+        {
+          "rfm_segment": "high_value_lapsed",
+          "customers_in_segment": 14882,
+          "orders_in_segment": 15741,
+          "orders_with_review_text": 6906.0,
+          "review_text_coverage_pct": 43.87
+        },
+        {
+          "rfm_segment": "champions",
+          "customers_in_segment": 15919,
+          "orders_in_segment": 17169,
+          "orders_with_review_text": 7258.0,
+          "review_text_coverage_pct": 42.27
+        },
+        {
+          "rfm_segment": "loyal",
+          "customers_in_segment": 19301,
+          "orders_in_segment": 20126,
+          "orders_with_review_text": 8327.0,
+          "review_text_coverage_pct": 41.37
+        },
+        {
+          "rfm_segment": "needs_attention",
+          "customers_in_segment": 15289,
+          "orders_in_segment": 15502,
+          "orders_with_review_text": 6340.0,
+          "review_text_coverage_pct": 40.9
+        },
+        {
+          "rfm_segment": "hibernating",
+          "customers_in_segment": 16002,
+          "orders_in_segment": 16104,
+          "orders_with_review_text": 6459.0,
+          "review_text_coverage_pct": 40.11
+        },
+        {
+          "rfm_segment": "recent_low_value",
+          "customers_in_segment": 14703,
+          "orders_in_segment": 14799,
+          "orders_with_review_text": 5537.0,
+          "review_text_coverage_pct": 37.41
+        }
+      ],
+      "row_count": 6
+    },
+    {
+      "id": "delivery_complaints_by_segment",
+      "question": "Which customer segment complains most about delivery?",
+      "note": "Both denominators, side by side. The ranking is the same either way here, which is worth knowing -- it means the difference is not just an artefact of who bothers to write a review.",
+      "sql": "select\n                rfm_segment,\n                max(review_text_coverage_pct) as review_coverage_pct,\n                round(sum(case when is_delivery_complaint\n                          then aspect_rate_of_reviewed else 0 end), 2)\n                    as complaint_rate_among_reviewed,\n                round(sum(case when is_delivery_complaint\n                          then aspect_rate_of_all_orders else 0 end), 2)\n                    as complaint_rate_among_all_orders\n            from main_marts.fct_segment_aspect\n            group by rfm_segment\n            order by complaint_rate_among_reviewed desc",
+      "columns": [
+        "rfm_segment",
+        "review_coverage_pct",
+        "complaint_rate_among_reviewed",
+        "complaint_rate_among_all_orders"
+      ],
+      "rows": [
+        {
+          "rfm_segment": "loyal",
+          "review_coverage_pct": 41.37,
+          "complaint_rate_among_reviewed": 30.4,
+          "complaint_rate_among_all_orders": 12.58
+        },
+        {
+          "rfm_segment": "high_value_lapsed",
+          "review_coverage_pct": 43.87,
+          "complaint_rate_among_reviewed": 27.06,
+          "complaint_rate_among_all_orders": 11.87
+        },
+        {
+          "rfm_segment": "champions",
+          "review_coverage_pct": 42.27,
+          "complaint_rate_among_reviewed": 26.95,
+          "complaint_rate_among_all_orders": 11.39
+        },
+        {
+          "rfm_segment": "needs_attention",
+          "review_coverage_pct": 40.9,
+          "complaint_rate_among_reviewed": 24.87,
+          "complaint_rate_among_all_orders": 10.17
+        },
+        {
+          "rfm_segment": "hibernating",
+          "review_coverage_pct": 40.11,
+          "complaint_rate_among_reviewed": 20.34,
+          "complaint_rate_among_all_orders": 8.16
+        },
+        {
+          "rfm_segment": "recent_low_value",
+          "review_coverage_pct": 37.41,
+          "complaint_rate_among_reviewed": 17.63,
+          "complaint_rate_among_all_orders": 6.6
+        }
+      ],
+      "row_count": 6
+    },
+    {
+      "id": "top_aspects_overall",
+      "question": "What do customers mention most often?",
+      "note": "Praise dominates: delivery_fast and product_quality are the two most common aspects in the corpus, not complaints.",
+      "sql": "select\n                aspect,\n                aspect_group,\n                sum(orders_mentioning_aspect) as orders_mentioning,\n                round(100.0 * sum(orders_mentioning_aspect)\n                      / sum(orders_with_review_text), 2) as pct_of_reviewed_orders\n            from main_marts.fct_segment_aspect\n            group by aspect, aspect_group\n            order by orders_mentioning desc",
+      "columns": [
+        "aspect",
+        "aspect_group",
+        "orders_mentioning",
+        "pct_of_reviewed_orders"
+      ],
+      "rows": [
+        {
+          "aspect": "delivery_fast",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 12435.0,
+          "pct_of_reviewed_orders": 30.46
+        },
+        {
+          "aspect": "product_quality",
+          "aspect_group": "product",
+          "orders_mentioning": 9263.0,
+          "pct_of_reviewed_orders": 22.69
+        },
+        {
+          "aspect": "seller_recommended",
+          "aspect_group": "seller",
+          "orders_mentioning": 7490.0,
+          "pct_of_reviewed_orders": 18.35
+        },
+        {
+          "aspect": "not_received",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 3132.0,
+          "pct_of_reviewed_orders": 7.67
+        },
+        {
+          "aspect": "not_as_described",
+          "aspect_group": "product",
+          "orders_mentioning": 2916.0,
+          "pct_of_reviewed_orders": 7.14
+        },
+        {
+          "aspect": "delivery_late",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 2882.0,
+          "pct_of_reviewed_orders": 7.06
+        },
+        {
+          "aspect": "seller_unresponsive",
+          "aspect_group": "seller",
+          "orders_mentioning": 2453.0,
+          "pct_of_reviewed_orders": 6.01
+        },
+        {
+          "aspect": "partial_delivery",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 2391.0,
+          "pct_of_reviewed_orders": 5.86
+        },
+        {
+          "aspect": "refund_or_billing",
+          "aspect_group": "seller",
+          "orders_mentioning": 2313.0,
+          "pct_of_reviewed_orders": 5.67
+        },
+        {
+          "aspect": "product_defect",
+          "aspect_group": "product",
+          "orders_mentioning": 1757.0,
+          "pct_of_reviewed_orders": 4.3
+        },
+        {
+          "aspect": "packaging",
+          "aspect_group": "product",
+          "orders_mentioning": 1756.0,
+          "pct_of_reviewed_orders": 4.3
+        },
+        {
+          "aspect": "wrong_item",
+          "aspect_group": "product",
+          "orders_mentioning": 1289.0,
+          "pct_of_reviewed_orders": 3.16
+        },
+        {
+          "aspect": "delivery_carrier_issue",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 1121.0,
+          "pct_of_reviewed_orders": 2.75
+        },
+        {
+          "aspect": "freight_cost",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 610.0,
+          "pct_of_reviewed_orders": 1.49
+        },
+        {
+          "aspect": "tracking_missing",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 483.0,
+          "pct_of_reviewed_orders": 1.18
+        },
+        {
+          "aspect": "split_shipment",
+          "aspect_group": "fulfilment",
+          "orders_mentioning": 214.0,
+          "pct_of_reviewed_orders": 0.52
+        }
+      ],
+      "row_count": 16
+    },
+    {
+      "id": "champions_vs_hibernating",
+      "question": "Do the best customers complain about different things than lapsed ones?",
+      "note": "Ordered by the size of the gap, so the aspects that separate them come first.",
+      "sql": "select\n                aspect,\n                max(case when rfm_segment = 'champions'\n                    then aspect_rate_of_reviewed end) as champions_pct,\n                max(case when rfm_segment = 'hibernating'\n                    then aspect_rate_of_reviewed end) as hibernating_pct\n            from main_marts.fct_segment_aspect\n            where rfm_segment in ('champions', 'hibernating')\n            group by aspect\n            order by abs(\n                coalesce(max(case when rfm_segment = 'champions'\n                         then aspect_rate_of_reviewed end), 0)\n                - coalesce(max(case when rfm_segment = 'hibernating'\n                           then aspect_rate_of_reviewed end), 0)\n            ) desc",
+      "columns": [
+        "aspect",
+        "champions_pct",
+        "hibernating_pct"
+      ],
+      "rows": [
+        {
+          "aspect": "partial_delivery",
+          "champions_pct": 9.2587,
+          "hibernating_pct": 2.632
+        },
+        {
+          "aspect": "seller_unresponsive",
+          "champions_pct": 6.7512,
+          "hibernating_pct": 4.6447
+        },
+        {
+          "aspect": "seller_recommended",
+          "champions_pct": 17.8837,
+          "hibernating_pct": 18.7955
+        },
+        {
+          "aspect": "product_quality",
+          "champions_pct": 21.8517,
+          "hibernating_pct": 22.7589
+        },
+        {
+          "aspect": "wrong_item",
+          "champions_pct": 3.6787,
+          "hibernating_pct": 2.7868
+        },
+        {
+          "aspect": "not_received",
+          "champions_pct": 7.0681,
+          "hibernating_pct": 7.8185
+        },
+        {
+          "aspect": "packaging",
+          "champions_pct": 4.7672,
+          "hibernating_pct": 4.2576
+        },
+        {
+          "aspect": "not_as_described",
+          "champions_pct": 7.6192,
+          "hibernating_pct": 7.1993
+        },
+        {
+          "aspect": "refund_or_billing",
+          "champions_pct": 6.3103,
+          "hibernating_pct": 6.7193
+        },
+        {
+          "aspect": "tracking_missing",
+          "champions_pct": 1.3227,
+          "hibernating_pct": 0.9754
+        },
+        {
+          "aspect": "delivery_fast",
+          "champions_pct": 30.8487,
+          "hibernating_pct": 30.5156
+        },
+        {
+          "aspect": "split_shipment",
+          "champions_pct": 0.6751,
+          "hibernating_pct": 0.3716
+        },
+        {
+          "aspect": "delivery_late",
+          "champions_pct": 6.2689,
+          "hibernating_pct": 5.9762
+        },
+        {
+          "aspect": "delivery_carrier_issue",
+          "champions_pct": 2.356,
+          "hibernating_pct": 2.5701
+        },
+        {
+          "aspect": "freight_cost",
+          "champions_pct": 1.5707,
+          "hibernating_pct": 1.7495
+        },
+        {
+          "aspect": "product_defect",
+          "champions_pct": 4.464,
+          "hibernating_pct": 4.5208
+        }
+      ],
+      "row_count": 16
+    },
+    {
+      "id": "repeat_customers",
+      "question": "How many customers ever order twice?",
+      "note": "96.88% order exactly once. This is why the mart scores Recency and Monetary but carries Frequency as a flag: quintiles over a column that is 1 for nineteen customers in twenty are noise that looks like signal.",
+      "sql": "select\n                orders_per_customer,\n                count(*) as customers,\n                round(100.0 * count(*) / sum(count(*)) over (), 2) as pct\n            from (\n                select customer_unique_id, count(*) as orders_per_customer\n                from main_marts.fct_orders\n                group by customer_unique_id\n            ) t\n            group by orders_per_customer\n            order by orders_per_customer",
+      "columns": [
+        "orders_per_customer",
+        "customers",
+        "pct"
+      ],
+      "rows": [
+        {
+          "orders_per_customer": 1,
+          "customers": 93099,
+          "pct": 96.88
+        },
+        {
+          "orders_per_customer": 2,
+          "customers": 2745,
+          "pct": 2.86
+        },
+        {
+          "orders_per_customer": 3,
+          "customers": 203,
+          "pct": 0.21
+        },
+        {
+          "orders_per_customer": 4,
+          "customers": 30,
+          "pct": 0.03
+        },
+        {
+          "orders_per_customer": 5,
+          "customers": 8,
+          "pct": 0.01
+        },
+        {
+          "orders_per_customer": 6,
+          "customers": 6,
+          "pct": 0.01
+        },
+        {
+          "orders_per_customer": 7,
+          "customers": 3,
+          "pct": 0.0
+        },
+        {
+          "orders_per_customer": 9,
+          "customers": 1,
+          "pct": 0.0
+        },
+        {
+          "orders_per_customer": 17,
+          "customers": 1,
+          "pct": 0.0
+        }
+      ],
+      "row_count": 9
+    },
+    {
+      "id": "label_provenance",
+      "question": "Which model and prompt version produced these labels?",
+      "note": "One row, by construction. Prompt v2 scored better in the eval and is deliberately not shipped -- relabelling the corpus costs more than the remaining budget, and a half-v2 corpus would make aspect frequencies impossible to attribute.",
+      "sql": "select distinct\n                label_model,\n                label_prompt_version,\n                count(*) over () as rows_in_mart\n            from main_marts.fct_segment_aspect",
+      "columns": [
+        "label_model",
+        "label_prompt_version",
+        "rows_in_mart"
+      ],
+      "rows": [
+        {
+          "label_model": "gemini-3.1-flash-lite",
+          "label_prompt_version": "v1",
+          "rows_in_mart": 96
+        }
+      ],
+      "row_count": 1
+    }
+  ]
+}
