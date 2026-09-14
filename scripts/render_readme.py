@@ -44,7 +44,7 @@ PLACEHOLDER = re.compile(r"\{\{([a-z0-9_]+)\}\}")
 # Test suites `make test` runs. Counted by asking pytest, not by reading the
 # files: parametrised cases expand at collection time and a hand count of `def
 # test_` would understate them.
-PYTEST_TARGETS = ["analytics/tests", "ingestion/tests"]
+PYTEST_TARGETS = ["analytics/tests", "ingestion/tests", "enrichment/tests"]
 
 
 def build_figures() -> dict[str, object]:

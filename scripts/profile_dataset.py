@@ -176,6 +176,139 @@ def version_boundaries(frame: pd.DataFrame, columns: list[str]) -> pd.Series:
     return changed
 
 
+def enrichment_figures() -> None:
+    """
+    Figures from the labelled corpus and the eval, every one stamped with the
+    prompt version that produced it.
+
+    The version is not decoration. The README reports that prompt v2 scored
+    better than v1 while the marts ship v1, and a reader who takes an aspect
+    count from one and a quality number from the other has silently combined two
+    runs. So label-derived figures carry the version in the NAME: a future v2
+    corpus emits `_v2` figures, the template stops rendering, and someone has to
+    look -- rather than the same placeholder quietly changing meaning underneath
+    a sentence that still reads correctly.
+
+    The shipped run is read from transform/dbt_project.yml, the same place
+    stg_review_enrichment filters on, so this cannot describe a run the marts
+    were not built from.
+    """
+    import duckdb
+    import yaml
+
+    project = yaml.safe_load((ROOT / "transform" / "dbt_project.yml").read_text(encoding="utf-8"))
+    model = project["vars"]["shipped_label_model"]
+    version = project["vars"]["shipped_prompt_version"]
+    fig("shipped_label_model", model)
+    fig("shipped_prompt_version", version)
+
+    labels = ROOT / "enrichment" / "data" / "review_enrichment.parquet"
+    costs = ROOT / "enrichment" / "data" / "enrichment_cost_log.parquet"
+    for path in (labels, costs):
+        if not path.exists():
+            raise SystemExit(f"{path} is missing; restore it with `make enrich-restore`")
+
+    con = duckdb.connect()
+    where = f"where model = '{model}' and prompt_version = '{version}'"
+    fig(
+        f"enrichment_texts_labelled_{version}",
+        con.execute(f"select count(*) from '{labels.as_posix()}' {where}").fetchone()[0],
+    )
+    instances, per_review, empty = con.execute(
+        f"""select sum(json_array_length(aspects)),
+                   avg(json_array_length(aspects)),
+                   sum(case when no_content then 1 else 0 end)
+            from '{labels.as_posix()}' {where}"""
+    ).fetchone()
+    fig(f"enrichment_aspect_instances_{version}", int(instances))
+    fig(f"enrichment_aspects_per_review_{version}", round(float(per_review), 2))
+    fig(f"enrichment_no_content_{version}", int(empty))
+
+    # The corpus run only. The eval, probe and cache-hit rows label a 600-review
+    # sample or nothing at all, and folding them in would overstate what the
+    # shipped corpus cost.
+    cost, _, seconds = con.execute(
+        f"""select sum(cost_usd), sum(reviews), sum(wall_seconds)
+            from '{costs.as_posix()}' {where} and reviews > 10000"""
+    ).fetchone()
+    fig(f"enrichment_corpus_cost_usd_{version}", round(float(cost), 2))
+    fig(f"enrichment_corpus_minutes_{version}", int(round(float(seconds) / 60)))
+    fig(
+        "enrichment_total_cost_usd",
+        round(
+            float(con.execute(f"select sum(cost_usd) from '{costs.as_posix()}'").fetchone()[0]), 2
+        ),
+    )
+    con.close()
+
+    # Why fct_segment_aspect scores Recency and Monetary but not Frequency.
+    # Measured from the source rather than asserted, because it is the fact the
+    # whole segmentation design rests on.
+    orders = pd.read_csv(RAW / "olist_orders_dataset.csv", usecols=["customer_id"])
+    customers = pd.read_csv(
+        RAW / "olist_customers_dataset.csv", usecols=["customer_id", "customer_unique_id"]
+    )
+    per_person = orders.merge(customers, on="customer_id").groupby("customer_unique_id").size()
+    fig("customers_total", int(per_person.shape[0]))
+    fig("single_order_customers", int((per_person == 1).sum()))
+    fig(
+        "single_order_customer_pct",
+        round(100.0 * float((per_person == 1).sum()) / per_person.shape[0], 2),
+    )
+
+    eval_dir = ROOT / "enrichment" / "eval"
+    sample = json.loads((eval_dir / "eval_sample_600.json").read_text(encoding="utf-8"))
+    fig("eval_sample_size", sample["size"])
+    fig("eval_random_stratum", len(sample["random"]))
+    fig("eval_targeted_stratum", len(sample["targeted"]))
+
+    for tag in ("v1", "v2"):
+        scores = json.loads((eval_dir / f"scores_{tag}.json").read_text(encoding="utf-8"))
+        aspects = scores["aspects"]
+        tp = sum(a["tp"] for a in aspects.values())
+        fp = sum(a["fp"] for a in aspects.values())
+        fn = sum(a["fn"] for a in aspects.values())
+        precision, recall = tp / (tp + fp), tp / (tp + fn)
+        fig(f"eval_false_negatives_{tag}", fn)
+        fig(f"eval_false_positives_{tag}", fp)
+        fig(f"eval_micro_precision_{tag}", round(precision, 3))
+        fig(f"eval_micro_recall_{tag}", round(recall, 3))
+        fig(f"eval_micro_f1_{tag}", round(2 * precision * recall / (precision + recall), 3))
+        fig(f"eval_exact_match_{tag}", scores["exact_match"])
+        fig(f"eval_exact_match_pct_{tag}", round(100 * scores["exact_match"] / scores["scored"], 1))
+        fig(
+            f"eval_sentiment_agreement_pct_{tag}",
+            round(100 * scores["sentiment_agreement"] / scores["scored"], 1),
+        )
+        fig(f"eval_recall_not_reported_{tag}", len(scores["recall_not_reported"]))
+        fig(f"eval_aspects_scored_{tag}", len(aspects))
+        for aspect in ("product_quality", "seller_unresponsive"):
+            row = aspects[aspect]
+            fig(f"eval_{aspect}_fn_{tag}", row["fn"])
+            fig(f"eval_{aspect}_fp_{tag}", row["fp"])
+            fig(f"eval_{aspect}_precision_{tag}", round(row["precision"], 3))
+            if row["recall"] is not None:
+                fig(f"eval_{aspect}_recall_{tag}", round(row["recall"], 3))
+        fig(f"eval_reference_model_{tag}", scores["reference"])
+        fig(f"eval_reference_version_{tag}", scores["reference_version"])
+
+    # Embeddings: costed by scripts/cost_embeddings.py, not yet run. Read from
+    # its output rather than typed into the template, so "costed, not yet run"
+    # is still a generated claim and cannot drift from the measurement.
+    embedding_file = eval_dir / "embedding_cost.json"
+    if embedding_file.exists():
+        embedding = json.loads(embedding_file.read_text(encoding="utf-8"))
+        fig("embedding_model", embedding["model"])
+        fig("embedding_tokens", embedding["tokens"])
+        fig("embedding_tokens_ci95", embedding["tokens_ci95"])
+        fig("embedding_usd_standard", embedding["usd_standard"])
+        fig("embedding_usd_batch", embedding["usd_batch"])
+        for dims, row in embedding["dimensions"].items():
+            fig(f"embedding_table_mib_{dims}", row["table_mib"])
+            fig(f"embedding_pct_query_ceiling_{dims}", row["pct_of_1gib_query_ceiling"])
+            fig(f"embedding_x_index_floor_{dims}", row["times_above_index_floor"])
+
+
 def main() -> None:
     f = load()
     customers, orders, sellers = f["customers"], f["orders"], f["sellers"]
@@ -461,6 +594,8 @@ def main() -> None:
         "mojibake_rows_total",
         sum(int(FIGURES[f"mojibake_{k}_rows"]) for k in ("customers", "sellers", "geolocation")),
     )
+
+    enrichment_figures()
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")

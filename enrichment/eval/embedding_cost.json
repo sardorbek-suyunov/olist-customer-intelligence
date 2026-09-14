@@ -1,0 +1,36 @@
+{
+  "model": "gemini-embedding-2",
+  "distinct_texts": 35616,
+  "total_chars": 2719156,
+  "sample_size": 800,
+  "sample_seconds": 37.0,
+  "max_tokens_in_sample": 81,
+  "fit_intercept": 0.3172,
+  "fit_slope": 0.248454,
+  "tokens": 686882,
+  "tokens_ci95": 1260,
+  "tokens_per_review": 19.29,
+  "preamble_tokens": 491,
+  "usd_standard": 0.1374,
+  "usd_batch": 0.0687,
+  "dimensions": {
+    "3072": {
+      "table_bytes": 875298816,
+      "table_mib": 834.8,
+      "pct_of_1gib_query_ceiling": 81.5,
+      "times_above_index_floor": 87.5
+    },
+    "1536": {
+      "table_bytes": 437649408,
+      "table_mib": 417.4,
+      "pct_of_1gib_query_ceiling": 40.8,
+      "times_above_index_floor": 43.8
+    },
+    "768": {
+      "table_bytes": 218824704,
+      "table_mib": 208.7,
+      "pct_of_1gib_query_ceiling": 20.4,
+      "times_above_index_floor": 21.9
+    }
+  }
+}
