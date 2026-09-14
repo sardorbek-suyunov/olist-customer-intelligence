@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from analytics import settings  # noqa: E402
+from analytics.bq_safety import DEFAULT_MAX_BYTES_PER_QUERY  # noqa: E402
 from analytics.gold_questions import GOLD  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -170,7 +171,31 @@ def main(argv: list[str] | None = None) -> int:
                 "max_usd_per_session": 0.05,
             },
         )
-        agent = Agent(backend.client, model=args.model, demo_budget=budget)
+        # And the same for the BYTE budget, for the same reason. The session
+        # query cap is now derived from what the byte budget affords of the most
+        # expensive query shape, which is 11 -- so a 25-question eval run under
+        # visitor ceilings dies at question 12 with "Session query limit reached".
+        # That is the reconciled ceiling working exactly as intended; an eval is
+        # simply not a visitor.
+        #
+        # The per-QUERY ceiling is left untouched at 1 GiB. That one is not about
+        # session length, it is about a single runaway query, and an eval has no
+        # claim to a larger one.
+        from analytics.bq_safety import QueryBudget
+
+        query_budget = QueryBudget(
+            **{
+                **settings.query_budget_settings(),
+                "max_queries_per_session": len(GOLD) + 5,
+                "max_bytes_per_session": (len(GOLD) + 5) * DEFAULT_MAX_BYTES_PER_QUERY,
+            }
+        )
+        agent = Agent(
+            backend.client,
+            model=args.model,
+            demo_budget=budget,
+            query_budget=query_budget,
+        )
         results = []
         started = time.monotonic()
 

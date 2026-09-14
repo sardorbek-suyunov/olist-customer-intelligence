@@ -171,9 +171,18 @@ RULES
 - One SELECT statement. Never INSERT, UPDATE, DELETE, CREATE or MERGE.
 - Only the tables above, fully qualified as {schema}.<table>.
 - Aggregate rather than returning raw rows where the question implies a summary.
-- fct_segment_aspect has one row per (rfm_segment, aspect). Selecting a
-  segment-level column without grouping will repeat it once per aspect; use
-  DISTINCT or MAX when you want it once.
+- fct_segment_aspect has one row per (rfm_segment, aspect). Two consequences,
+  and they pull in opposite directions:
+  * A SEGMENT-level column (orders_in_segment, customers_in_segment,
+    review_text_coverage_pct) is repeated once per aspect. Use DISTINCT or MAX
+    to read it once. Do NOT SUM it -- that multiplies it by the aspect count.
+  * An ASPECT-level measure (aspect_rate_of_reviewed, aspect_rate_of_all_orders,
+    orders_mentioning_aspect) is per aspect. A question about a GROUP of aspects
+    -- "delivery complaints", "product problems" -- means SUM that measure over
+    the aspects in the group and GROUP BY rfm_segment. MAX would give the single
+    worst aspect, which is a different question and a smaller number.
+  * A question comparing segments returns ONE ROW PER SEGMENT. If your result
+    has one row per (segment, aspect), you have not aggregated yet.
 - aspect_rate_of_reviewed is the rate among orders that HAVE review text.
   aspect_rate_of_all_orders is over all orders. They are different questions and
   review_text_coverage_pct is the difference between them.

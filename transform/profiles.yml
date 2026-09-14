@@ -26,7 +26,18 @@ olist_intelligence:
     bigquery:
       type: bigquery
       method: oauth
-      project: "{{ env_var('GCP_PROJECT_ID', '') }}"
+      # NO DEFAULT, deliberately. This was `env_var('GCP_PROJECT_ID', '')`, and an
+      # empty project id is accepted by the client, sent to BigQuery, and comes
+      # back as `Database Error: Request couldn't be served.` -- a server message
+      # that names nothing, mentions no variable, and looks exactly like a broken
+      # adapter. It cost a session's worth of suspicion of dbt, the dependency
+      # tree and the quota, and the answer was visible all along in the console
+      # URL dbt prints: `?project=&j=bq:US:...`.
+      #
+      # Without the default, dbt fails immediately with "Env var required but not
+      # provided: 'GCP_PROJECT_ID'". A missing config should read as a missing
+      # config.
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
       dataset: "{{ env_var('BQ_DATASET', 'olist') }}"
       location: "{{ env_var('BQ_LOCATION', 'US') }}"
       threads: 8
@@ -40,7 +51,7 @@ olist_intelligence:
     bigquery_sa:
       type: bigquery
       method: service-account
-      project: "{{ env_var('GCP_PROJECT_ID', '') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
       dataset: "{{ env_var('BQ_DATASET', 'olist') }}"
       location: "{{ env_var('BQ_LOCATION', 'US') }}"
       keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS', '') }}"
@@ -55,7 +66,7 @@ olist_intelligence:
     bigquery_scheduled:
       type: bigquery
       method: service-account
-      project: "{{ env_var('GCP_PROJECT_ID', '') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
       dataset: "{{ env_var('BQ_DATASET', 'olist') }}"
       location: "{{ env_var('BQ_LOCATION', 'US') }}"
       keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS', '') }}"

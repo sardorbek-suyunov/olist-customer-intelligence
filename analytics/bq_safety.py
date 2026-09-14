@@ -40,7 +40,26 @@ GIB = 1024**3
 # free allowance.
 DEFAULT_MAX_BYTES_PER_QUERY = 1 * GIB
 DEFAULT_MAX_BYTES_PER_SESSION = 5 * GIB
-DEFAULT_MAX_QUERIES_PER_SESSION = 50
+
+# The most expensive query shape the demo can issue, MEASURED rather than
+# assumed: an unindexed VECTOR_SEARCH over 35,616 x 1536-d vectors, joined to
+# the review text, fct_orders and fct_segment_aspect. 435 MiB billed, executed,
+# not dry-run. scripts/measure_vector_search_bytes.py, recorded in
+# enrichment/eval/vector_search_bytes.json.
+#
+# This constant exists because the two ceilings disagreed. The query counter was
+# 50 and the byte budget affords 11 of these, which makes the looser of the two
+# decorative: a session would be cut off by bytes at 11 having been promised 50,
+# and the cap that "limits" the session would never once have fired. A ceiling
+# that cannot be the binding constraint is not a control, it is a comment.
+#
+# Sized from the byte budget rather than chosen: whatever the byte budget affords
+# of the worst query IS the query cap. A future dimension change moves the
+# measured cost, which moves the cap, and test_ceilings_are_consistent fails if
+# the recorded measurement and this arithmetic ever drift apart.
+MEASURED_WORST_QUERY_BYTES = 435 * 1024**2
+
+DEFAULT_MAX_QUERIES_PER_SESSION = DEFAULT_MAX_BYTES_PER_SESSION // MEASURED_WORST_QUERY_BYTES
 
 _FORBIDDEN = re.compile(
     r"\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|"

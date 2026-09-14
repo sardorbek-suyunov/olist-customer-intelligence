@@ -1,21 +1,36 @@
 {#
-    Extract a JSON array of strings into something UNNEST can consume.
+    Unnest a JSON array of strings into rows, in the target's own dialect.
 
-    The aspect list is stored as a JSON array because the label is one row per
-    review and the taxonomy is a set. Reading it back needs one function that
-    the two engines spell differently, and nothing else about the unnest
-    differs -- `from t, unnest(...) as a(x)` parses identically on both, which
-    is why only the extraction is dispatched and not the whole statement.
+    TWO THINGS DIFFER, AND ONLY ONE OF THEM IS OBVIOUS.
 
-    The aspect NAMES are not repeated here or anywhere else in SQL. They live in
-    enrichment/taxonomy.py and reach dbt as a seed, so a taxonomy change cannot
-    leave a stale copy behind in a CASE expression.
+    The extraction function differs, which is what this macro was originally
+    written for:
+        duckdb    json_extract_string(col, '$[*]')
+        bigquery  json_value_array(col, '$')
+
+    The LATERAL ALIAS also differs, which is what it originally got wrong:
+        duckdb    ... as a(aspect)     -- Postgres-style, names the column
+        bigquery  ... as aspect        -- rejects the parenthesised form outright
+
+    The first version emitted only the extraction and left `as a(aspect)` in the
+    model, having verified that form "works on both". It was verified on DuckDB
+    alone -- BigQuery answers it with `Syntax error: Expected ")" but got "("` --
+    and the mistake survived because the BigQuery build was separately broken by
+    an unset GCP_PROJECT_ID, so the model had never actually been compiled there.
+    A cross-engine claim tested on one engine is not a cross-engine claim.
+
+    So the macro now renders the WHOLE clause. There is nothing dialect-specific
+    left in the model for a future edit to get wrong, which is the point: the
+    model says what it wants, the macro knows how each engine spells it.
+
+    The aspect NAMES are still not repeated in SQL anywhere -- they live in
+    enrichment/taxonomy.py and reach dbt as a generated seed.
 #}
 
-{% macro json_string_array(column) %}
+{% macro unnest_json_array(column, alias) %}
     {%- if target.type == 'bigquery' -%}
-        json_value_array({{ column }}, '$')
+        unnest(json_value_array({{ column }}, '$')) as {{ alias }}
     {%- else -%}
-        json_extract_string({{ column }}, '$[*]')
+        unnest(json_extract_string({{ column }}, '$[*]')) as unnested({{ alias }})
     {%- endif -%}
 {% endmacro %}

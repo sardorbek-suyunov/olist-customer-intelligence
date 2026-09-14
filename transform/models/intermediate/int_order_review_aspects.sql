@@ -55,9 +55,9 @@ exploded as (
         l.label_sentiment,
         l.label_severity,
         l.label_no_content,
-        a.aspect
+        aspect
     from labelled l,
-    unnest({{ json_string_array('l.label_aspects_json') }}) as a(aspect)
+    {{ unnest_json_array('l.label_aspects_json', 'aspect') }}
 
 )
 
