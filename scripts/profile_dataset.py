@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -291,6 +292,15 @@ def enrichment_figures() -> None:
                 fig(f"eval_{aspect}_recall_{tag}", round(row["recall"], 3))
         fig(f"eval_reference_model_{tag}", scores["reference"])
         fig(f"eval_reference_version_{tag}", scores["reference_version"])
+
+    # The NL->SQL gold set, counted from the module that defines it rather than
+    # typed into the template. A pair added or removed moves the README.
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from analytics.gold_questions import GOLD
+
+    fig("nl2sql_gold_total", len(GOLD))
+    fig("nl2sql_gold_traps", sum(1 for g in GOLD if g.category == "trap"))
 
     # Embeddings: costed by scripts/cost_embeddings.py, not yet run. Read from
     # its output rather than typed into the template, so "costed, not yet run"

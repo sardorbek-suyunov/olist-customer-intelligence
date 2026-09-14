@@ -90,6 +90,8 @@
   "mojibake_rows_total": 4,
   "mojibake_sellers_distinct": 0,
   "mojibake_sellers_rows": 0,
+  "nl2sql_gold_total": 25,
+  "nl2sql_gold_traps": 6,
   "non_ascii_customers_distinct": 0,
   "non_ascii_customers_rows": 0,
   "non_ascii_geolocation_distinct": 2085,

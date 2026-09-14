@@ -460,3 +460,151 @@ missing row and a zero are different claims -- "nobody in this segment mentioned
 versus "this combination was never computed" -- and a chart cannot tell them apart. The
 grid comes from a seed generated from `enrichment/taxonomy.py`, so the aspect list is
 not written a second time in SQL.
+
+## 12. The embedding path needed its own guards, not the labelling ones
+
+**The call.** `enrichment/embed.py` is a separate module with its own arity check,
+normalisation check, rate limiter and cost accounting, rather than a call bolted onto
+the labelling pipeline.
+
+**Why, in three findings that all came from probing before running.**
+
+**`contents=["a", "b", "c"]` returns ONE embedding, not three.** The SDK folds a list of
+strings into a single Content and embeds the concatenation. It does not error and does
+not warn; what comes back is a perfectly ordinary unit vector, for a text nobody wrote.
+`list[types.Content]` returns one per text. Every batch is now checked for arity -- the
+same guard `parse_batch` applies to a labelling response that silently covers 19 of 20
+reviews. It is the same bug in a new place and it is worse here, because a merged
+embedding is indistinguishable from a real one downstream: nothing fails, search just
+quietly returns the wrong neighbours.
+
+**The embed response carries no `usage_metadata`.** The labelling log records what the
+API said it charged; there is nothing to record here, so tokens are counted with
+`countTokens`. That is exact rather than estimated -- same tokenizer, free -- but it is
+weaker provenance than usage metadata, and the module says so rather than letting the
+two look equivalent in the cost log.
+
+Batching that count introduced its own trap: `countTokens` over N Contents returns
+exactly one token less per Content than counting them individually, because each item
+carries framing. Measured at 1.00/text across batches of 5, 20 and 50. Since each text
+is embedded on its own, the billed figure is the individual sum, so the batched call is
+corrected by `+ len(texts)`. Without it the corpus undercounts by about 5%: small,
+plausible, invisible. `verify_token_correction` re-checks the relationship on real texts
+before each run relies on it, because a tokenizer change would otherwise shift every
+cost figure while keeping the log internally consistent.
+
+**The quota counts contents, not requests.** Runs kept dying on
+`embed_content_paid_tier_requests`, limit 3,000. The obvious reading is 3,000 HTTP
+requests a minute, and the job makes about 1,400 in total -- on that reading it could
+not trip, and it tripped repeatedly. The first died at 3,187 vectors after roughly 64
+calls. So the limit counts the items inside the batch, and the floor on wall time for
+35,616 texts is about twelve minutes regardless of concurrency.
+
+Retrying does not help against a per-minute quota; it spends attempts waiting for a
+window that opens on a schedule. Pacing does. And a textbook token bucket was still not
+enough: it starts FULL, so the first instant released a whole minute's allowance at once
+and the burst crossed a sliding window that the average never would. The bucket now
+holds a tenth of a minute and starts empty.
+
+**What the failures exposed that was worth more than the run.** The retry logic lived
+inside `GeminiClient.generate`, so the embedding path -- calling the SDK directly -- had
+none. The retry existed the whole time; it was welded to the wrong method. It is now
+`with_retries`, used by both.
+
+## 13. Unlogged spend is found by comparing the log to the thing it describes
+
+**The call.** `scripts/reconcile_embedding_cost.py` counts the tokens behind the vectors
+that actually exist and compares that to what the cost log claims. `make embed-reconcile`.
+
+**Why a reconciliation rather than more discipline.** This project has now lost spend
+from its own cost log twice, in two different ways:
+
+- Three exploratory labelling calls made straight through `GeminiClient`: $0.0863, no rows.
+- A full-corpus embed run that died on a 429 with 2,800 vectors written and the cost row
+  never reached, because it was written after the loop rather than in a `finally`.
+
+Both are invisible from inside the log. The log was not wrong about anything it
+contained; it simply did not know those calls had happened, and reading it more
+carefully would never have revealed that. The only way to see it is to compare the log
+against an independent record of the same events -- here the vectors themselves, whose
+token count can be recovered exactly and for free.
+
+It found the second one immediately: 51,799 tokens, $0.0104, recorded as a labelled
+correction row rather than folded quietly into an existing one.
+
+**Two structural changes alongside it.** The cost row is now written in a `finally`, so
+a crashed run still reports what it spent before crashing -- proven on the next crash,
+which recorded $0.0349 on its way out. And `GeminiClient` warns on construction when it
+has no cost sink, naming the spend that will go unrecorded: a probe is still allowed, it
+is just no longer silent.
+
+**The general form.** Every control here is an instance of one rule, and this is that
+rule applied to the log itself: a self-report is not evidence. The cost log is a
+self-report. The vectors are the thing.
+
+## 14. The SQL guard parses, and IAM is what actually stops a DELETE
+
+**The call.** `analytics/sql_guard.py` parses agent SQL with sqlglot and decides against
+the AST. `bq_safety`'s regex stays as a second opinion. Neither is the security
+boundary: the service account holds `roles/bigquery.dataViewer` on the marts dataset and
+`roles/bigquery.jobUser` at project level, and nothing else.
+
+**Why a parser.** A regex reads text; SQL is a grammar. Two statements a
+keyword-and-semicolon check cannot classify correctly:
+
+    select 'delete from x' as note from t         -- a word inside quotes
+    select * from t where c = 'a; drop table y'   -- a semicolon inside a literal
+
+Both are harmless and both get rejected. That is wrong in the safe direction, which
+sounds acceptable until it is priced: a false rejection costs a retry, and a retry costs
+a slice of the visitor's budget to re-learn something the agent already did correctly.
+
+**Why the allowlist is not the boundary.** `check()` takes `allowed_tables`, and it is
+there for a clear error message rather than for safety. An allowlist in application code
+protects nothing once the application is the thing that is wrong -- a bug in the guard,
+or a future contributor adding a second query helper that forgets to call it. The grant
+survives the code being wrong, which is the only property that matters. The setup script
+grants at DATASET level rather than project level on purpose: one word's difference, and
+a project-level `dataViewer` would hand the agent the raw extract where the identifying
+columns live.
+
+**LIMIT is injected, not required.** An agent told "always add a LIMIT" usually will.
+Usually is not a control. Rather than rejecting the statement and spending a retry, the
+limit is added to the AST and the rewritten SQL is what executes. An existing smaller
+limit is kept; a larger one is lowered; a non-literal one is replaced, because it cannot
+be compared and so does not get the benefit of the doubt.
+
+The guard therefore returns SQL rather than a verdict. A caller that validates one
+string and executes another has a guard in name only.
+
+## 15. The agent is scored on execution accuracy, and the failures are the report
+
+**The call.** 25 gold question/SQL pairs, scored by running both statements and
+comparing result sets. Not string similarity.
+
+**Why.** There are many correct SQL statements for any of these questions. `count(*)`
+and `sum(1)`, a JOIN or a correlated subquery, a CTE instead of a nested select --
+identical in result, arbitrarily different as text. Scoring on text rewards SQL that
+looks like the answer key rather than SQL that answers the question, and penalises a
+better query for being better.
+
+**What counts as a match, and why each rule exists.** Values rather than column names:
+the agent naming a column `complaint_rate` where the gold says `rate` is not a defect.
+Row order significant only when the gold has an ORDER BY: a question that does not ask
+for an ordering has no wrong ordering. Floats to a tolerance: a SUM over a different
+join order differs in the last bit, and an eval that fails on that is measuring IEEE 754.
+
+**The gold set is validated before it is used.** Gold SQL that is subtly wrong produces
+an eval that reports a number and measures nothing -- worse than no eval, because it
+carries authority. `--validate-gold` runs every statement and reports any that break or
+return nothing, against DuckDB, so checking the answer key costs nothing.
+
+**Trap questions are labelled.** Several of the 25 are questions where the obvious SQL
+is wrong in a way that still returns plausible rows: the grain of `fct_segment_aspect`,
+where a segment-level column repeats once per aspect, and the two denominators. They
+score the same as the rest. The category exists so the failure analysis can say *where*
+it failed rather than only how often, because those are the failures that would reach a
+reader as a confident wrong number.
+
+**The number ships with its failures.** 19 of 25 with six explained is a stronger claim
+than 25 of 25, and it is the standard the aspect eval is already held to.

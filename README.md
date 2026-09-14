@@ -15,7 +15,7 @@ by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 
 [![CI](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml)
 
-**79 dbt tests · 85 Python tests · full build in ~5s on DuckDB · $0 to run**
+**79 dbt tests · 118 Python tests · full build in ~5s on DuckDB · $0 to run**
 
 ---
 
@@ -680,6 +680,29 @@ exclusion and provides none, and the ledger's shared temp filename was itself a
 race. Both were caught by a ten-thread concurrency test, which is the only
 reason they are not still there.
 
+### Secrets are scanned across the whole history, not the working tree
+
+A credential committed once is in the pack forever, and the window to rewrite
+history cheaply closes the moment someone clones it. So CI scans **every commit**
+(`--no-current`, `fetch-depth: 0`), not the tip — a shallow checkout would
+produce a green check describing a scan that never looked at anything.
+
+Verified that it can fail before trusting that it passes: a throwaway repo with
+a planted AWS key and a Gemini-shaped key, committed and then *deleted*, is
+flagged in history. A scanner reporting zero findings and a scanner that is
+silently broken look identical from the outside.
+
+Result here: clean. `.env` has never been committed, and no path matching a
+credential pattern has ever been added.
+
+The scanner is installed in isolation, and that is not a preference:
+`trufflehog3` pins `attrs==20.3.0`, which is incompatible with the `jsonschema`
+that dbt depends on. Installing it into the project environment downgrades
+`attrs` and every subsequent `dbt` command dies with a traceback that names
+`jsonschema` and never mentions the scanner that caused it. `make secrets` runs
+it through `pipx`; CI gives it a job on a runner that never installs
+`requirements.txt`.
+
 The whole warehouse is ~120 MB, so a legitimate query scans single-digit MB. A
 runaway `select *` is rejected by BigQuery server-side before it bills anything,
 and the per-session budget catches the death-by-a-thousand-queries case that a
@@ -695,7 +718,7 @@ An LLM that writes SQL will eventually write a cross join. A prompt saying
 
 ```
 analytics/          NL->SQL spend ceilings, Gemini demo budget, cached examples
-                    (+ 28 unit tests)
+                    (+ 61 unit tests)
 dashboard/          Streamlit app + committed Parquet snapshot of the marts
 docs/adr/           Architecture decision records
 docs/DECISIONS.md   Judgement calls and their reasoning -- distinct from the ADRs
@@ -730,9 +753,10 @@ was shared because a service-account key expired is worse than no demo.
 | Gemini review enrichment | **Executed** — 35,616 texts labelled at vv1 for $3.19, 0 quarantined, labels committed |
 | Per-aspect eval + v1→v2 prompt iteration | **Executed** — 600-review sample, micro F1 0.905 → 0.916; recall reported for 3 of 16 aspects and withheld for 13 |
 | `fct_segment_aspect` (RFM × aspect, coverage as a column) | **Built and tested** — complete grid, provenance-stamped, 79 dbt tests green |
-| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 28 unit tests including a ten-thread concurrency check |
+| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 61 unit tests including a ten-thread concurrency check |
 | Review embeddings (`gemini-embedding-2`, 1536-d) | **Costed, not yet run** — 686,882 tokens measured (±1,260), $0.1374 |
-| NL→SQL agent (both sets of ceilings already built) | Planned |
+| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and tested** — 61 unit tests; gold set of 25 question/SQL pairs |
+| Secret scan over full git history, in CI | **Executed** — clean; verified against a planted key that the scan can fail |
 
 Planned means planned. Nothing in this README describes code that does not
 exist.
