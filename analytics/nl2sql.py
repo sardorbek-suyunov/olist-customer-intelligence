@@ -1,0 +1,256 @@
+"""
+Natural language to SQL over the Olist marts, under both sets of ceilings.
+
+    python -m analytics.nl2sql "which segment complains most about delivery?"
+
+The interesting part of this is not the prompt. It is that every layer which
+could cost money or touch data is a control that holds regardless of what the
+model emits:
+
+  gemini_budget   prices the call from countTokens BEFORE issuing it, reserves
+                  it against a shared ledger, settles against real usage.
+  sql_guard       parses the statement, rejects anything that is not a single
+                  SELECT, and injects a LIMIT rather than asking for one.
+  bq_safety       dry-runs the query for its exact byte count, checks it against
+                  the per-query and per-session ceilings, and sets
+                  maximum_bytes_billed so BigQuery enforces it server-side too.
+  IAM             the service account holds roles/bigquery.dataViewer on the
+                  marts dataset and nothing else. This is the control that
+                  actually stops a DELETE; everything above is defence in depth.
+
+TWO THINGS ARE GENERATED RATHER THAN WRITTEN
+--------------------------------------------
+The schema block comes from the dbt manifest, so a column added to a model
+reaches the prompt without anyone remembering to update it -- and the
+descriptions the agent reads are the same ones in _marts.yml that the docs site
+renders. A hand-maintained schema string is a second copy of the schema, and
+this project has already paid for several of those.
+
+The worked examples come from `analytics.demo_examples`, which exist anyway as
+the demo's zero-cost fallback. They are human-written and reviewed, which is
+exactly what a few-shot example needs to be, and using them here means the
+examples the agent learns from are the same ones a visitor can see run.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from analytics import settings
+from analytics.bq_safety import BudgetExceeded, QueryBudget, SafeQueryRunner
+from analytics.demo_examples import EXAMPLES
+from analytics.gemini_budget import DemoBudget, DemoBudgetExceeded
+from analytics.sql_guard import UnsafeSQL, check
+
+LOG = logging.getLogger("olist.nl2sql")
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "transform" / "target" / "manifest.json"
+
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
+
+# Only the marts. Not a security boundary -- see sql_guard -- but it keeps the
+# prompt short and turns a wrong table into a clear message instead of a
+# permission error the model cannot act on.
+MARTS_SCHEMA = "olist_marts"
+
+
+@dataclass(frozen=True)
+class Answer:
+    question: str
+    sql: str
+    rows: list[dict]
+    bytes_billed: int
+    usd_spent: float
+    limit_added: bool
+    tables: tuple[str, ...]
+
+
+def schema_prompt(manifest_path: Path = MANIFEST, schema: str = MARTS_SCHEMA) -> str:
+    """
+    The marts, their columns and their descriptions, from the dbt manifest.
+
+    Descriptions matter more than types here. `aspect_rate_of_reviewed` and
+    `aspect_rate_of_all_orders` have identical types and mean different things,
+    and the difference is the single easiest way to get a wrong answer out of
+    this mart -- so the text that explains it travels into the prompt.
+    """
+    if not manifest_path.exists():
+        raise SystemExit(
+            f"{manifest_path} not found. The schema is read from the dbt manifest "
+            "rather than hardcoded, so the project must be built first:\n  make build"
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    lines: list[str] = []
+    for node in manifest["nodes"].values():
+        if node["resource_type"] != "model" or node["config"].get("schema") != "marts":
+            continue
+        lines.append(f"\nTABLE {schema}.{node['name']}")
+        if node.get("description"):
+            summary = " ".join(node["description"].split())
+            lines.append(f"  -- {summary[:400]}")
+        for column in node.get("columns", {}).values():
+            note = " ".join((column.get("description") or "").split())
+            lines.append(f"    {column['name']}" + (f"  -- {note[:180]}" if note else ""))
+    return "\n".join(lines)
+
+
+def example_prompt(schema: str = MARTS_SCHEMA) -> str:
+    """Human-written, reviewed SQL. The demo's fallback, reused as few-shot."""
+    blocks = []
+    for example in EXAMPLES:
+        sql = " ".join(example.sql.format(marts=schema).split())
+        blocks.append(f"Q: {example.question}\nA: {sql}")
+    return "\n\n".join(blocks)
+
+
+def build_prompt(question: str, schema: str = MARTS_SCHEMA) -> str:
+    return f"""You write BigQuery SQL against a small analytics warehouse.
+
+{schema_prompt(schema=schema)}
+
+RULES
+- Return SQL only. No prose, no markdown fences, no explanation.
+- One SELECT statement. Never INSERT, UPDATE, DELETE, CREATE or MERGE.
+- Only the tables above, fully qualified as {schema}.<table>.
+- Aggregate rather than returning raw rows where the question implies a summary.
+- fct_segment_aspect has one row per (rfm_segment, aspect). Selecting a
+  segment-level column without grouping will repeat it once per aspect; use
+  DISTINCT or MAX when you want it once.
+- aspect_rate_of_reviewed is the rate among orders that HAVE review text.
+  aspect_rate_of_all_orders is over all orders. They are different questions and
+  review_text_coverage_pct is the difference between them.
+
+EXAMPLES
+
+{example_prompt(schema=schema)}
+
+Q: {question}
+A:"""
+
+
+def strip_fences(text: str) -> str:
+    """
+    Models wrap SQL in ```sql fences no matter how firmly they are told not to.
+
+    Stripping it here rather than rejecting the answer: the instruction is a
+    request to a non-deterministic system, and spending a retry -- and a slice
+    of the visitor's budget -- to punish a formatting habit helps nobody.
+    """
+    fenced = re.search(r"```(?:sql)?\s*(.+?)\s*```", text, re.DOTALL | re.IGNORECASE)
+    return (fenced.group(1) if fenced else text).strip()
+
+
+class Agent:
+    """One conversation. Owns both budgets for its lifetime."""
+
+    def __init__(
+        self,
+        bq_client,
+        model: str = DEFAULT_MODEL,
+        gemini_client=None,
+        demo_budget: DemoBudget | None = None,
+        query_budget: QueryBudget | None = None,
+        max_rows: int | None = None,
+        schema: str = MARTS_SCHEMA,
+    ) -> None:
+        self.model = model
+        self.schema = schema
+        self.max_rows = max_rows if max_rows is not None else settings.nl2sql_max_rows()
+        self.budget = demo_budget or DemoBudget(model=model, **settings.gemini_budget_settings())
+        self.runner = SafeQueryRunner(
+            bq_client, query_budget or QueryBudget(**settings.query_budget_settings())
+        )
+        self._gemini = gemini_client
+
+    def _client(self):
+        if self._gemini is None:
+            from enrichment.client import make_client
+
+            self._gemini = make_client()
+        return self._gemini
+
+    def write_sql(self, question: str) -> tuple[str, float]:
+        """Ask the model, paying for it through the ledger. Returns (sql, usd)."""
+        from google.genai import types
+
+        client = self._client()
+        prompt = build_prompt(question, schema=self.schema)
+
+        # Exact input tokens before the call, so the reservation is a real worst
+        # case rather than a guess. countTokens is free.
+        input_tokens = client.models.count_tokens(model=self.model, contents=prompt).total_tokens
+        self.budget.check(input_tokens)
+
+        response = client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                # The output cap comes from the budget rather than being
+                # restated here, so the reservation and the request cannot
+                # disagree about what the ceiling is.
+                **self.budget.generation_config(),
+            ),
+        )
+        usage = response.usage_metadata
+        spent = self.budget.record(
+            usage.prompt_token_count or 0,
+            (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
+        )
+        return strip_fences(response.text or ""), spent
+
+    def ask(self, question: str) -> Answer:
+        sql, spent = self.write_sql(question)
+        checked = check(sql, max_rows=self.max_rows)
+        rows, billed = self.runner.run(checked.sql, max_rows=self.max_rows)
+        return Answer(
+            question=question,
+            sql=checked.sql,
+            rows=rows,
+            bytes_billed=billed,
+            usd_spent=spent,
+            limit_added=checked.limit_added,
+            tables=checked.tables,
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
+    from google.cloud import bigquery
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("question", nargs="+")
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--log-level", default="INFO")
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=args.log_level, format="%(levelname)-8s %(name)s  %(message)s")
+
+    agent = Agent(bigquery.Client(), model=args.model)
+    try:
+        answer = agent.ask(" ".join(args.question))
+    except DemoBudgetExceeded as exc:
+        print(f"Budget ({exc.scope}): {exc}")
+        return 2
+    except (UnsafeSQL, BudgetExceeded) as exc:
+        print(f"Refused: {exc}")
+        return 3
+
+    print(f"\n{answer.sql}\n")
+    for row in answer.rows[:20]:
+        print("  ", row)
+    print(
+        f"\n{len(answer.rows)} rows | {answer.bytes_billed / 1024**2:.1f} MiB billed "
+        f"| ${answer.usd_spent:.5f} of Gemini"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
