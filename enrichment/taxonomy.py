@@ -25,7 +25,7 @@ from dataclasses import dataclass
 # The version travels in the cache key. Editing the taxonomy, the prompt text or
 # the schema MUST bump it, or a re-run silently serves enrichments produced by a
 # definition that no longer exists.
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 
 @dataclass(frozen=True)
@@ -99,7 +99,16 @@ ASPECTS: tuple[Aspect, ...] = (
         "product_quality",
         "product",
         None,
-        "build quality or materials, good or bad, short of an outright defect",
+        # v2. The v1 wording -- "build quality or materials, good or bad, short of
+        # an outright defect" -- read as a request for a specific, technical
+        # judgement, and the model did not map a plain verdict onto it. It dropped
+        # "Bom produto" and "os copos sao lindos" while correctly labelling the
+        # delivery aspect of the same sentence. That single omission was 39 of the
+        # 85 false negatives in the v1 eval. The change widens the description to
+        # include the plain verdict; it does not widen the aspect's meaning.
+        "any verdict on the product itself -- build quality, materials, or simply "
+        "that it is good or bad -- short of an outright defect. Applies even when "
+        "the review also praises delivery or the seller",
     ),
     Aspect("wrong_item", "product", None, "a different product than the one ordered"),
     Aspect(
