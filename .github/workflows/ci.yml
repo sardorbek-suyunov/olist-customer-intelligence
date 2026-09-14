@@ -10,6 +10,29 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  # Runs first and independently of everything else. This repository is private
+  # today and is intended to go public; a credential committed once is in the
+  # pack forever, and the window to rewrite history cheaply closes the moment
+  # someone clones it.
+  #
+  # fetch-depth: 0 is load-bearing. The default shallow checkout fetches one
+  # commit, so the scan would pass by only ever looking at the tip -- a green
+  # check describing a scan that did not happen, which is the failure mode this
+  # project keeps cataloguing.
+  secrets:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install trufflehog3
+      - name: Scan every commit, not just the working tree
+        run: trufflehog3 --no-current --depth 10000 --config .trufflehog3.yml .
+
   # Fast feedback. No data, no credentials, so a fork PR gets a useful answer
   # in under a minute.
   lint:
@@ -35,7 +58,7 @@ jobs:
       # executing, which catches a mangled line continuation or a typo'd variable
       # -- both of which had already happened and gone unnoticed.
       - name: Makefile recipes expand
-        run: make -n help lint test profile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run
+        run: make -n help lint test profile secrets embed embed-reconcile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run
 
       - name: dbt parse
         working-directory: transform

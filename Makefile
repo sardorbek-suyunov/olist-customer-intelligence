@@ -83,6 +83,19 @@ eval-score: ## Score the shipped labels against the reference model
 	  --reference $(or $(REFERENCE),gemini-3.8-flash) \
 	  --subject-version $(or $(SUBJECT_VERSION),v1) --reference-version v1
 
+.PHONY: secrets
+secrets: ## Scan the FULL commit history for credentials (not just the tree)
+	@echo 'Isolated on purpose: trufflehog3 pins attrs==20.3.0 and breaks dbt.'
+	pipx run trufflehog3 --no-current --depth 10000 --config .trufflehog3.yml .
+
+.PHONY: embed
+embed: ## Embed the distinct review texts. Resumes from cache; a re-run costs $0
+	python -m enrichment.embed --all --dimensions $(or $(DIMS),1536)
+
+.PHONY: embed-reconcile
+embed-reconcile: ## Check the cost log against the vectors that actually exist
+	python scripts/reconcile_embedding_cost.py
+
 .PHONY: readme
 readme: ## Render README.md from README.template.md and the measured figures
 	python scripts/render_readme.py
