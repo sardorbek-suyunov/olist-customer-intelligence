@@ -302,6 +302,21 @@ def enrichment_figures() -> None:
     fig("nl2sql_gold_total", len(GOLD))
     fig("nl2sql_gold_traps", sum(1 for g in GOLD if g.category == "trap"))
 
+    # The scored run, if one has happened. Absent rather than zero when it has
+    # not: a 0% accuracy figure and "no eval has been run" are different claims
+    # and the README must not be able to print the first while meaning the second.
+    nl2sql_file = eval_dir / "nl2sql_v1.json"
+    if nl2sql_file.exists():
+        scored = json.loads(nl2sql_file.read_text(encoding="utf-8"))
+        fig("nl2sql_matched", scored["matched"])
+        fig("nl2sql_total", scored["total"])
+        fig("nl2sql_accuracy_pct", round(100 * scored["accuracy"], 1))
+        fig("nl2sql_model", scored["model"])
+        fig("nl2sql_usd", round(sum(r.get("usd", 0) for r in scored["results"]), 5))
+        for category, (matched, total) in scored["by_category"].items():
+            fig(f"nl2sql_{category}_matched", matched)
+            fig(f"nl2sql_{category}_total", total)
+
     # Embeddings: costed by scripts/cost_embeddings.py, not yet run. Read from
     # its output rather than typed into the template, so "costed, not yet run"
     # is still a generated claim and cannot drift from the measurement.

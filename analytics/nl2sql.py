@@ -71,14 +71,32 @@ class Answer:
     tables: tuple[str, ...]
 
 
-def schema_prompt(manifest_path: Path = MANIFEST, schema: str = MARTS_SCHEMA) -> str:
+def schema_prompt(
+    manifest_path: Path = MANIFEST,
+    schema: str = MARTS_SCHEMA,
+    columns_by_table: dict[str, list[str]] | None = None,
+) -> str:
     """
-    The marts, their columns and their descriptions, from the dbt manifest.
+    The marts, their columns and their descriptions.
 
-    Descriptions matter more than types here. `aspect_rate_of_reviewed` and
-    `aspect_rate_of_all_orders` have identical types and mean different things,
-    and the difference is the single easiest way to get a wrong answer out of
-    this mart -- so the text that explains it travels into the prompt.
+    TWO SOURCES, BECAUSE NEITHER IS SUFFICIENT ALONE.
+
+    The WAREHOUSE says which columns exist. The manifest does not: its `columns`
+    dict contains only what someone wrote YAML for, and _marts.yml documents the
+    columns that carry tests. Built from the manifest alone this prompt showed
+    the agent 3 of fct_orders' 17 columns -- order_value, delivery_days and
+    seller_count were all invisible -- and the agent duly invented a
+    `fct_order_items` table to compute revenue from, four times. That reads like
+    a hallucination and is closer to the opposite: it was never told the column
+    it needed was right there.
+
+    The MANIFEST says what the columns mean, and that is what stops the other
+    kind of wrong answer. `aspect_rate_of_reviewed` and
+    `aspect_rate_of_all_orders` have identical types and different meanings, and
+    only the description separates them.
+
+    So: column list from the database, descriptions overlaid from the manifest,
+    and a column with no description is still listed rather than hidden.
     """
     if not manifest_path.exists():
         raise SystemExit(
@@ -91,14 +109,43 @@ def schema_prompt(manifest_path: Path = MANIFEST, schema: str = MARTS_SCHEMA) ->
     for node in manifest["nodes"].values():
         if node["resource_type"] != "model" or node["config"].get("schema") != "marts":
             continue
-        lines.append(f"\nTABLE {schema}.{node['name']}")
+        name = node["name"]
+        lines.append(f"\nTABLE {schema}.{name}")
         if node.get("description"):
             summary = " ".join(node["description"].split())
             lines.append(f"  -- {summary[:400]}")
-        for column in node.get("columns", {}).values():
-            note = " ".join((column.get("description") or "").split())
-            lines.append(f"    {column['name']}" + (f"  -- {note[:180]}" if note else ""))
+
+        documented = {
+            c["name"]: c.get("description") or "" for c in node.get("columns", {}).values()
+        }
+        actual = (columns_by_table or {}).get(name)
+        for column in actual if actual else list(documented):
+            note = " ".join(documented.get(column, "").split())
+            lines.append(f"    {column}" + (f"  -- {note[:180]}" if note else ""))
     return "\n".join(lines)
+
+
+def columns_from_bigquery(client, schema: str = MARTS_SCHEMA) -> dict[str, list[str]]:
+    """Every column the marts actually have, in ordinal order."""
+    rows = client.query(
+        f"""select table_name, column_name
+            from `{client.project}.{schema}.INFORMATION_SCHEMA.COLUMNS`
+            order by table_name, ordinal_position"""
+    ).result()
+    out: dict[str, list[str]] = {}
+    for row in rows:
+        out.setdefault(row.table_name, []).append(row.column_name)
+    return out
+
+
+def mart_tables(manifest_path: Path = MANIFEST, schema: str = MARTS_SCHEMA) -> set[str]:
+    """The marts that exist, from the same manifest the prompt is built from."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {
+        f"{schema}.{node['name']}".lower()
+        for node in manifest["nodes"].values()
+        if node["resource_type"] == "model" and node["config"].get("schema") == "marts"
+    }
 
 
 def example_prompt(schema: str = MARTS_SCHEMA) -> str:
@@ -110,10 +157,14 @@ def example_prompt(schema: str = MARTS_SCHEMA) -> str:
     return "\n\n".join(blocks)
 
 
-def build_prompt(question: str, schema: str = MARTS_SCHEMA) -> str:
+def build_prompt(
+    question: str,
+    schema: str = MARTS_SCHEMA,
+    columns_by_table: dict[str, list[str]] | None = None,
+) -> str:
     return f"""You write BigQuery SQL against a small analytics warehouse.
 
-{schema_prompt(schema=schema)}
+{schema_prompt(schema=schema, columns_by_table=columns_by_table)}
 
 RULES
 - Return SQL only. No prose, no markdown fences, no explanation.
@@ -168,6 +219,10 @@ class Agent:
             bq_client, query_budget or QueryBudget(**settings.query_budget_settings())
         )
         self._gemini = gemini_client
+        self.tables = mart_tables(schema=schema)
+        # Read once per agent: the column list comes from the warehouse
+        # because the manifest only knows the columns someone wrote YAML for.
+        self.columns = columns_from_bigquery(bq_client, schema=schema)
 
     def _client(self):
         if self._gemini is None:
@@ -181,7 +236,7 @@ class Agent:
         from google.genai import types
 
         client = self._client()
-        prompt = build_prompt(question, schema=self.schema)
+        prompt = build_prompt(question, schema=self.schema, columns_by_table=self.columns)
 
         # Exact input tokens before the call, so the reservation is a real worst
         # case rather than a guess. countTokens is free.
@@ -209,7 +264,12 @@ class Agent:
 
     def ask(self, question: str) -> Answer:
         sql, spent = self.write_sql(question)
-        checked = check(sql, max_rows=self.max_rows)
+        # The table list goes to the guard so a hallucinated table is refused
+        # with a message naming what IS available -- something the model can
+        # act on -- rather than reaching BigQuery and coming back a 404.
+        # Without it the agent invented olist_marts.fct_order_items twice and
+        # the guard waved both through.
+        checked = check(sql, allowed_tables=self.tables, max_rows=self.max_rows)
         rows, billed = self.runner.run(checked.sql, max_rows=self.max_rows)
         return Answer(
             question=question,

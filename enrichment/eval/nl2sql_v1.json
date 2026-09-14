@@ -1,0 +1,388 @@
+{
+  "model": "gemini-3.1-flash-lite",
+  "backend": "bigquery",
+  "total": 25,
+  "matched": 22,
+  "accuracy": 0.88,
+  "by_outcome": {
+    "match": 22,
+    "mismatch": 3
+  },
+  "by_category": {
+    "aggregate": [
+      5,
+      5
+    ],
+    "join": [
+      1,
+      1
+    ],
+    "ranking": [
+      3,
+      3
+    ],
+    "simple": [
+      10,
+      10
+    ],
+    "trap": [
+      3,
+      6
+    ]
+  },
+  "results": [
+    {
+      "id": "g01",
+      "question": "How many orders are there in total?",
+      "category": "simple",
+      "gold_sql": "select count(*) as orders from olist_marts.fct_orders",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT count(order_id) FROM olist_marts.fct_orders LIMIT 200",
+      "usd": 0.000452,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g02",
+      "question": "How many distinct customers are there?",
+      "category": "simple",
+      "gold_sql": "select count(distinct customer_unique_id) as customers from olist_marts.fct_orders",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT count(DISTINCT customer_unique_id) AS total_unique_customers FROM olist_marts.dim_customers LIMIT 200",
+      "usd": 0.00046374999999999997,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g03",
+      "question": "What are the RFM segments?",
+      "category": "simple",
+      "gold_sql": "select distinct rfm_segment from olist_marts.fct_segment_aspect order by rfm_segment",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT DISTINCT rfm_segment FROM olist_marts.fct_segment_aspect ORDER BY rfm_segment LIMIT 200",
+      "usd": 0.00046225,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g04",
+      "question": "How many orders does each segment have?",
+      "category": "trap",
+      "gold_sql": "select distinct rfm_segment, orders_in_segment from olist_marts.fct_segment_aspect order by rfm_segment",
+      "note": "orders_in_segment is segment-level; a plain select repeats it 16 times",
+      "ordered": false,
+      "agent_sql": "SELECT rfm_segment, MAX(orders_in_segment) AS orders_in_segment FROM olist_marts.fct_segment_aspect GROUP BY rfm_segment ORDER BY orders_in_segment DESC LIMIT 200",
+      "usd": 0.0004955,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g05",
+      "question": "What percentage of each segment's orders have review text?",
+      "category": "trap",
+      "gold_sql": "select distinct rfm_segment, review_text_coverage_pct from olist_marts.fct_segment_aspect order by rfm_segment",
+      "note": "same grain trap as g04",
+      "ordered": false,
+      "agent_sql": "SELECT rfm_segment, review_text_coverage_pct FROM olist_marts.fct_segment_aspect GROUP BY rfm_segment, review_text_coverage_pct ORDER BY review_text_coverage_pct DESC LIMIT 200",
+      "usd": 0.000501,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g06",
+      "question": "Which aspect is mentioned in the most orders overall?",
+      "category": "ranking",
+      "gold_sql": "select aspect, sum(orders_mentioning_aspect) as total from olist_marts.fct_segment_aspect group by aspect order by total desc limit 1",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT aspect, sum(orders_mentioning_aspect) AS total_orders_mentioning FROM olist_marts.fct_segment_aspect GROUP BY aspect ORDER BY total_orders_mentioning DESC LIMIT 1",
+      "usd": 0.000496,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g07",
+      "question": "List the five most mentioned aspects with their totals.",
+      "category": "ranking",
+      "gold_sql": "select aspect, sum(orders_mentioning_aspect) as total from olist_marts.fct_segment_aspect group by aspect order by total desc limit 5",
+      "note": "",
+      "ordered": true,
+      "agent_sql": "SELECT aspect, sum(orders_mentioning_aspect) AS total_mentions FROM olist_marts.fct_segment_aspect GROUP BY aspect ORDER BY total_mentions DESC LIMIT 5",
+      "usd": 0.00049,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g08",
+      "question": "Which segment has the highest delivery complaint rate among reviewed orders?",
+      "category": "trap",
+      "gold_sql": "select rfm_segment, sum(case when is_delivery_complaint then aspect_rate_of_reviewed else 0 end) as rate from olist_marts.fct_segment_aspect group by rfm_segment order by rate desc limit 1",
+      "note": "must use is_delivery_complaint, and the reviewed denominator",
+      "ordered": false,
+      "agent_sql": "SELECT rfm_segment, MAX(aspect_rate_of_reviewed) AS max_delivery_complaint_rate FROM olist_marts.fct_segment_aspect WHERE is_delivery_complaint = TRUE GROUP BY rfm_segment ORDER BY max_delivery_complaint_rate DESC LIMIT 1",
+      "usd": 0.0005265000000000001,
+      "bytes": 10485760,
+      "outcome": "mismatch",
+      "gold_rows": 1,
+      "agent_rows": 1,
+      "gold_sample": [
+        [
+          "loyal",
+          "30.411799999999996"
+        ]
+      ],
+      "agent_sample": [
+        [
+          "champions",
+          "9.2399"
+        ]
+      ]
+    },
+    {
+      "id": "g09",
+      "question": "How many customers are in the champions segment?",
+      "category": "trap",
+      "gold_sql": "select distinct customers_in_segment from olist_marts.fct_segment_aspect where rfm_segment = 'champions'",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT DISTINCT rfm_segment, customers_in_segment FROM olist_marts.fct_segment_aspect WHERE rfm_segment = 'champions' LIMIT 200",
+      "usd": 0.00047775,
+      "bytes": 10485760,
+      "outcome": "mismatch",
+      "gold_rows": 1,
+      "agent_rows": 1,
+      "gold_sample": [
+        [
+          "15924"
+        ]
+      ],
+      "agent_sample": [
+        [
+          "champions",
+          "15924"
+        ]
+      ]
+    },
+    {
+      "id": "g10",
+      "question": "What is the average order value?",
+      "category": "aggregate",
+      "gold_sql": "select avg(order_value) as avg_order_value from olist_marts.fct_orders",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT avg(order_value) AS avg_order_value FROM olist_marts.fct_orders LIMIT 200",
+      "usd": 0.00046075,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g11",
+      "question": "What is the total revenue across all orders?",
+      "category": "aggregate",
+      "gold_sql": "select sum(order_value) as revenue from olist_marts.fct_orders",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT sum(order_value) AS total_revenue FROM olist_marts.fct_orders LIMIT 200",
+      "usd": 0.00045825,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g12",
+      "question": "How many orders were delivered?",
+      "category": "simple",
+      "gold_sql": "select count(*) as delivered from olist_marts.fct_orders where order_status = 'delivered'",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT count(*) AS delivered_orders FROM olist_marts.fct_orders WHERE order_status = 'delivered' LIMIT 200",
+      "usd": 0.00046350000000000004,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g13",
+      "question": "How many orders are there per order status?",
+      "category": "aggregate",
+      "gold_sql": "select order_status, count(*) as orders from olist_marts.fct_orders group by order_status order by orders desc",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT order_status, count(*) AS order_count FROM olist_marts.fct_orders GROUP BY order_status ORDER BY order_count DESC LIMIT 200",
+      "usd": 0.00047475,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g14",
+      "question": "What is the average delivery time in days for delivered orders?",
+      "category": "aggregate",
+      "gold_sql": "select avg(delivery_days) as avg_days from olist_marts.fct_orders where order_status = 'delivered' and delivery_days is not null",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT avg(delivery_days) AS avg_delivery_days FROM olist_marts.fct_orders WHERE order_status = 'delivered' AND NOT delivery_days IS NULL LIMIT 200",
+      "usd": 0.0004845,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g15",
+      "question": "Which aspects belong to the fulfilment group?",
+      "category": "simple",
+      "gold_sql": "select distinct aspect from olist_marts.fct_segment_aspect where aspect_group = 'fulfilment' order by aspect",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT DISTINCT aspect FROM olist_marts.fct_segment_aspect WHERE aspect_group = 'fulfilment' LIMIT 200",
+      "usd": 0.000464,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g16",
+      "question": "How many aspects count as delivery complaints?",
+      "category": "simple",
+      "gold_sql": "select count(distinct aspect) as n from olist_marts.fct_segment_aspect where is_delivery_complaint",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT count(DISTINCT aspect) AS delivery_complaint_aspect_count FROM olist_marts.fct_segment_aspect WHERE is_delivery_complaint LIMIT 200",
+      "usd": 0.00047749999999999995,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g17",
+      "question": "For the hibernating segment, list aspects by their rate among reviewed orders, highest first.",
+      "category": "ranking",
+      "gold_sql": "select aspect, aspect_rate_of_reviewed from olist_marts.fct_segment_aspect where rfm_segment = 'hibernating' order by aspect_rate_of_reviewed desc",
+      "note": "",
+      "ordered": true,
+      "agent_sql": "SELECT aspect, aspect_rate_of_reviewed FROM olist_marts.fct_segment_aspect WHERE rfm_segment = 'hibernating' ORDER BY aspect_rate_of_reviewed DESC LIMIT 200",
+      "usd": 0.00049375,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g18",
+      "question": "Which prompt version and model produced the aspect labels?",
+      "category": "simple",
+      "gold_sql": "select distinct label_prompt_version, label_model from olist_marts.fct_segment_aspect",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT DISTINCT label_prompt_version, label_model FROM olist_marts.fct_segment_aspect LIMIT 200",
+      "usd": 0.0004615,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g19",
+      "question": "How many orders mention product_quality in each segment?",
+      "category": "simple",
+      "gold_sql": "select rfm_segment, orders_mentioning_aspect from olist_marts.fct_segment_aspect where aspect = 'product_quality' order by rfm_segment",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT rfm_segment, orders_mentioning_aspect AS orders_mentioning_product_quality FROM olist_marts.fct_segment_aspect WHERE aspect = 'product_quality' ORDER BY orders_mentioning_product_quality DESC LIMIT 200",
+      "usd": 0.0005052500000000001,
+      "bytes": 0,
+      "outcome": "match"
+    },
+    {
+      "id": "g20",
+      "question": "What is the highest order value?",
+      "category": "aggregate",
+      "gold_sql": "select max(order_value) as max_value from olist_marts.fct_orders",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT MAX(order_value) AS max_order_value FROM olist_marts.fct_orders LIMIT 200",
+      "usd": 0.00046075,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g21",
+      "question": "How many orders have more than one seller?",
+      "category": "simple",
+      "gold_sql": "select count(*) as multi_seller from olist_marts.fct_orders where seller_count > 1",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT count(*) AS orders_with_multiple_sellers FROM olist_marts.fct_orders WHERE seller_count > 1 LIMIT 200",
+      "usd": 0.00046875,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g22",
+      "question": "Compare the champions and hibernating segments on their delivery complaint rate among reviewed orders.",
+      "category": "trap",
+      "gold_sql": "select rfm_segment, sum(case when is_delivery_complaint then aspect_rate_of_reviewed else 0 end) as rate from olist_marts.fct_segment_aspect where rfm_segment in ('champions', 'hibernating') group by rfm_segment order by rfm_segment",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT rfm_segment, aspect_rate_of_reviewed AS delivery_complaint_rate FROM olist_marts.fct_segment_aspect WHERE rfm_segment IN ('champions', 'hibernating') AND is_delivery_complaint = TRUE ORDER BY rfm_segment LIMIT 200",
+      "usd": 0.00052175,
+      "bytes": 10485760,
+      "outcome": "mismatch",
+      "gold_rows": 2,
+      "agent_rows": 12,
+      "gold_sample": [
+        [
+          "champions",
+          "26.8658"
+        ],
+        [
+          "hibernating",
+          "20.427000000000003"
+        ]
+      ],
+      "agent_sample": [
+        [
+          "champions",
+          "6.2517"
+        ],
+        [
+          "champions",
+          "7.0366"
+        ],
+        [
+          "champions",
+          "9.2399"
+        ]
+      ]
+    },
+    {
+      "id": "g23",
+      "question": "How many customers are in each state?",
+      "category": "join",
+      "gold_sql": "select customer_state, count(*) as customers from olist_marts.dim_customers where is_current group by customer_state order by customers desc",
+      "note": "dim_customers is SCD2; a count without is_current double-counts changed customers",
+      "ordered": false,
+      "agent_sql": "SELECT customer_state, count(DISTINCT customer_unique_id) AS customer_count FROM olist_marts.dim_customers WHERE is_current = TRUE GROUP BY customer_state ORDER BY customer_count DESC LIMIT 200",
+      "usd": 0.0004925,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g24",
+      "question": "How many product categories are there?",
+      "category": "simple",
+      "gold_sql": "select count(distinct product_category) as categories from olist_marts.dim_products",
+      "note": "the column is product_category, not product_category_name; --validate-gold caught it",
+      "ordered": false,
+      "agent_sql": "SELECT count(DISTINCT product_category) AS category_count FROM olist_marts.dim_products LIMIT 200",
+      "usd": 0.00045775,
+      "bytes": 10485760,
+      "outcome": "match"
+    },
+    {
+      "id": "g25",
+      "question": "Which segment has the lowest review text coverage?",
+      "category": "trap",
+      "gold_sql": "select rfm_segment, max(review_text_coverage_pct) as coverage from olist_marts.fct_segment_aspect group by rfm_segment order by coverage asc limit 1",
+      "note": "",
+      "ordered": false,
+      "agent_sql": "SELECT rfm_segment, MIN(review_text_coverage_pct) AS min_coverage FROM olist_marts.fct_segment_aspect GROUP BY rfm_segment ORDER BY min_coverage ASC LIMIT 1",
+      "usd": 0.00049725,
+      "bytes": 10485760,
+      "outcome": "match"
+    }
+  ]
+}

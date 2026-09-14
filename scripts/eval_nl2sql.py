@@ -40,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from analytics import settings  # noqa: E402
 from analytics.gold_questions import GOLD  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,7 +155,22 @@ def main(argv: list[str] | None = None) -> int:
                 "--validate-gold to check the answer key locally for free."
             )
 
-        agent = Agent(backend.client, model=args.model)
+        # The demo's per-session ceiling is 10 questions, sized for a visitor.
+        # An eval is not a visitor, so it gets a session budget sized for the
+        # gold set -- but it still draws on the SHARED day and lifetime ledger,
+        # because this is real spend against the same key and quietly exempting
+        # the eval from the total is how a budget stops meaning anything.
+        from analytics.gemini_budget import DemoBudget
+
+        budget = DemoBudget(
+            model=args.model,
+            **{
+                **settings.gemini_budget_settings(),
+                "max_calls_per_session": len(GOLD) + 5,
+                "max_usd_per_session": 0.05,
+            },
+        )
+        agent = Agent(backend.client, model=args.model, demo_budget=budget)
         results = []
         started = time.monotonic()
 
@@ -166,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
                 "category": gold.category,
                 "gold_sql": " ".join(gold_sql.split()),
                 "note": gold.note,
+                "ordered": gold.ordered,
             }
             try:
                 answer = agent.ask(gold.question)
@@ -188,7 +205,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(f"gold {gold.id} does not execute: {exc}") from exc
 
             got = [tuple(r.values()) for r in answer.rows]
-            ordered = "order by" in gold_sql.lower()
+            # The QUESTION decides, not the presence of ORDER BY in the gold.
+            # Sniffing the SQL failed three correct answers whose gold was
+            # ordered only so its output would be stable.
+            ordered = gold.ordered
             if equal(gold_rows, got, ordered):
                 record["outcome"] = "match"
                 print(f"  ok    {gold.id}  {gold.category}")

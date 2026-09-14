@@ -42,27 +42,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def neighbours(con, table: str, vector: list[float], k: int, exclude: str | None = None):
     """
-    Top-k by cosine similarity, with the labels alongside.
+    Top-k by cosine similarity. Labels are attached by the caller.
 
-    The aspects come from the enrichment tables rather than from the embedding,
-    so the two independent views of the same review can be compared by eye. If
-    the nearest neighbours of a delivery complaint are labelled with product
-    aspects, one of the two is wrong and this is where that shows up.
+    The label join cannot happen in SQL here. content_hash encodes the VARIANT
+    as well as the text -- `RETRIEVAL_DOCUMENT:1536` for an embedding, `v1` for
+    a label -- so the same review has two different hashes and joining them
+    directly returns nothing. Correct behaviour from the cache key, and a silent
+    empty join if you forget it: the first version of this printed every
+    neighbour with `[?: -]` where the aspects should have been, and the
+    similarity scores looked perfectly fine.
+
+    So the caller maps embedding-hash -> text -> label-hash, both derived from
+    the one `content_hash` definition rather than from a second rule.
     """
     return con.execute(
         f"""
-        with scored as (
-            select
-                e.content_hash,
-                array_cosine_similarity(e.embedding, ?::float[{len(vector)}]) as similarity
-            from {RAW_SCHEMA}.{table} e
-            where ? is null or e.content_hash <> ?
-        )
-        select s.similarity, r.aspects, r.sentiment, r.severity, s.content_hash
-        from scored s
-        left join {RAW_SCHEMA}.review_enrichment r
-               on r.content_hash = s.content_hash
-        order by s.similarity desc
+        select
+            array_cosine_similarity(e.embedding, ?::float[{len(vector)}]) as similarity,
+            e.content_hash
+        from {RAW_SCHEMA}.{table} e
+        where ? is null or e.content_hash <> ?
+        order by similarity desc
         limit {k}
         """,
         [vector, exclude, exclude],
@@ -82,6 +82,12 @@ def main(argv: list[str] | None = None) -> int:
         "--neighbours-of", type=int, default=0, help="how many seed reviews to show neighbours for"
     )
     parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument(
+        "--label-version",
+        default=None,
+        help="prompt version the labels were produced under; defaults to the shipped run",
+    )
+    parser.add_argument("--label-model", default="gemini-3.1-flash-lite")
     args = parser.parse_args(argv)
 
     from enrichment.embed import DOCUMENT_TASK, embed_query
@@ -90,6 +96,13 @@ def main(argv: list[str] | None = None) -> int:
 
     table = embedding_table(args.dimensions)
     variant = f"{DOCUMENT_TASK}:{args.dimensions}"
+    # The shipped label run, read from dbt_project.yml so this cannot describe
+    # a different run from the one the marts were built on.
+    import yaml
+
+    project = yaml.safe_load((ROOT / "transform" / "dbt_project.yml").read_text(encoding="utf-8"))
+    taxonomy_variant = args.label_version or project["vars"]["shipped_prompt_version"]
+    LABEL_MODEL = args.label_model or project["vars"]["shipped_label_model"]
 
     texts: dict[str, str] = {}
     for _, text in load_reviews(None, 11):
@@ -100,11 +113,26 @@ def main(argv: list[str] | None = None) -> int:
         total = con.execute(f"select count(*) from {RAW_SCHEMA}.{table}").fetchone()[0]
         print(f"{total:,} vectors, {args.dimensions}-d, model {args.model}\n")
 
+        # embedding-hash -> label row, bridged through the text. Both hashes come
+        # from the same content_hash() definition; only the variant differs.
+        label_variant = taxonomy_variant
+        labels_by_hash: dict[str, tuple] = {}
+        for digest, body in texts.items():
+            row = con.execute(
+                f"select aspects, sentiment from {RAW_SCHEMA}.review_enrichment "
+                "where content_hash = ?",
+                [content_hash(body, label_variant, LABEL_MODEL)],
+            ).fetchone()
+            if row:
+                labels_by_hash[digest] = row
+
         def show(rows) -> None:
-            for rank, (similarity, aspects, sentiment, _severity, digest) in enumerate(rows, 1):
-                labels = ", ".join(json.loads(aspects)) if aspects else "-"
+            for rank, (similarity, digest) in enumerate(rows, 1):
+                row = labels_by_hash.get(digest)
+                labels = ", ".join(json.loads(row[0])) if row and row[0] else "-"
+                sentiment = row[1] if row else "?"
                 body = texts.get(digest, "<text not in corpus>")
-                print(f"    {rank}. {similarity:.4f}  [{sentiment or '?'}: {labels}]")
+                print(f"    {rank}. {similarity:.4f}  [{sentiment}: {labels}]")
                 print(f"       {body[:110]}")
 
         if args.neighbours_of:

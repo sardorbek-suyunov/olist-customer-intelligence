@@ -552,6 +552,73 @@ Worth recording that skipping the index is a choice and not a limitation: the
 
 ---
 
+## The NL→SQL agent
+
+`22 of 25` gold questions answered correctly —
+**88.0% execution accuracy** on `gemini-3.1-flash-lite`, for
+$0.01201 of Gemini.
+
+Execution accuracy means both statements are **run** and their result sets
+compared. Not string similarity: `count(*)` and `sum(1)` are the same answer and
+share almost no characters, so scoring on text rewards SQL that resembles the
+answer key over SQL that answers the question.
+
+| category | score |
+|---|---|
+| simple | 10/10 |
+| aggregate | 5/5 |
+| ranking | 3/3 |
+| join | 1/1 |
+| **trap** | **3/6** |
+
+**Every failure is a trap question, and everything else is 19/19.** That is the
+result, not the headline percentage. `trap` questions are ones where the obvious
+SQL returns plausible rows and the wrong number — mostly the grain of
+`fct_segment_aspect`, which has one row per (segment, aspect).
+
+- **g08** *"which segment has the highest delivery complaint rate?"* — the agent
+  took `MAX(aspect_rate_of_reviewed)` over the delivery aspects where the
+  question needs `SUM`. It answered `champions, 9.24`; the truth is
+  `loyal, 30.41`. Right shape, wrong segment, nothing about it looks wrong.
+- **g22** *"compare champions and hibernating"* — returned 12 rows, one per
+  aspect, instead of 2 aggregated. Same grain, not aggregated at all.
+- **g09** is borderline and is counted as a failure anyway: the agent returned
+  `champions, 15924` where the gold returns `15924`. The value is right and
+  there is an extra label column. Kept strict rather than relaxed, because
+  loosening a comparison after seeing which cases it fails is how an accuracy
+  figure stops meaning anything.
+
+### Two of the fixes on the way to that number were mine, not the model's
+
+The first run scored **11/25**. Most of the gap was defects in the harness and
+the prompt, and finding them is the reason the eval exists:
+
+| what was wrong | effect |
+|---|---|
+| The eval treated any `ORDER BY` in the gold as "order is part of the answer" | Failed 3 correct answers. The gold was ordered for stable output; the questions never asked for an ordering. Now an explicit `ordered` flag per question. |
+| The schema prompt was built from the dbt manifest alone | The manifest only carries columns someone wrote YAML for, so the agent saw **3 of `fct_orders`' 17 columns**. `order_value` was invisible, and the agent invented a `fct_order_items` table to compute revenue from — four times. Column list now comes from the warehouse, descriptions from the manifest. |
+| `Agent` never passed `allowed_tables` to the guard | Hallucinated tables reached BigQuery as 404s instead of being refused with a message naming what *is* available. |
+
+11 → 14 → 22. The two middle failures were mine; reporting 11/25 as the model's
+score would have been wrong in the model's disfavour, and reporting 22/25
+without saying what moved would be wrong in mine.
+
+### The controls, and which one actually matters
+
+| layer | what it does |
+|---|---|
+| `gemini_budget` | prices the call with `countTokens` **before** issuing it, reserves against a shared ledger, settles against real usage |
+| `sql_guard` | parses with sqlglot, rejects anything that is not a single `SELECT`, **injects** a `LIMIT` rather than asking for one |
+| `bq_safety` | dry-runs for exact bytes, checks both ceilings, sets `maximum_bytes_billed` so BigQuery enforces it server-side |
+| **IAM** | the service account holds `dataViewer` on the marts dataset and nothing else |
+
+The last row is the boundary. The three above it run *inside* the application,
+so they protect against the model behaving badly, not against the application
+behaving badly. The grant survives the code being wrong — which, per the table
+above, it was.
+
+---
+
 ## One failure mode, seven times
 
 Every bug in this project that survived review shares a shape: **a status

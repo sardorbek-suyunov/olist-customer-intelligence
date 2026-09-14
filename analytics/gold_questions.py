@@ -42,6 +42,16 @@ class Gold:
     sql: str
     category: str  # simple | aggregate | join | trap | ranking
     note: str = ""
+    # Does the QUESTION ask for an ordering, or does the gold merely have an
+    # ORDER BY so its output is stable?
+    #
+    # Inferring this from the presence of ORDER BY was the first approach and it
+    # was wrong in the worst direction: it failed three correct answers. "Which
+    # aspects belong to the fulfilment group?" does not ask for an order, so an
+    # agent returning the same eight aspects in a different order has answered
+    # it. Only questions containing an actual ordering request -- "the five
+    # most", "highest first" -- set this.
+    ordered: bool = False
 
 
 GOLD: tuple[Gold, ...] = (
@@ -94,6 +104,7 @@ GOLD: tuple[Gold, ...] = (
            from {m}.fct_segment_aspect group by aspect
            order by total desc limit 5""",
         "ranking",
+        ordered=True,
     ),
     Gold(
         "g08",
@@ -164,6 +175,7 @@ GOLD: tuple[Gold, ...] = (
         """select aspect, aspect_rate_of_reviewed from {m}.fct_segment_aspect
            where rfm_segment = 'hibernating' order by aspect_rate_of_reviewed desc""",
         "ranking",
+        ordered=True,
     ),
     Gold(
         "g18",
@@ -211,8 +223,9 @@ GOLD: tuple[Gold, ...] = (
     Gold(
         "g24",
         "How many product categories are there?",
-        "select count(distinct product_category_name) as categories from {m}.dim_products",
+        "select count(distinct product_category) as categories from {m}.dim_products",
         "simple",
+        "the column is product_category, not product_category_name; --validate-gold caught it",
     ),
     Gold(
         "g25",
