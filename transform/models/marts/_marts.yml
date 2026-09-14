@@ -60,3 +60,54 @@ models:
     columns:
       - name: seller_id
         data_tests: [unique, not_null]
+
+  - name: fct_segment_aspect
+    description: |
+      RFM segment x review aspect, one row per pair, complete grid. Carries
+      review-text coverage per segment as a column because every aspect rate
+      here is computed over the ~41% of orders that have review text, and that
+      share differs by segment.
+
+      Frequency is deliberately NOT scored into quintiles: 96.88% of customers
+      have exactly one order, so NTILE(5) over that column cuts ties into
+      arbitrary blocks that look exactly like real scores. Segmentation is on R
+      and M; frequency travels as a count and a flag.
+
+      Every row is stamped with the prompt version and model that produced the
+      labels. The marts ship v1; prompt v2 measured better and is not applied.
+      See docs/DECISIONS.md 5b.
+    columns:
+      - name: rfm_segment
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [champions, loyal, high_value_lapsed, recent_low_value, hibernating, needs_attention]
+      - name: aspect
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('aspect_taxonomy')
+              field: aspect
+      - name: label_prompt_version
+        description: The prompt version the shipped labels came from. One value across the mart.
+        data_tests: [not_null]
+      - name: label_model
+        data_tests: [not_null]
+      - name: review_text_coverage_pct
+        description: Share of the segment's orders carrying review text. The denominator caveat.
+        data_tests: [not_null]
+      - name: orders_mentioning_aspect
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [rfm_segment, aspect]
+      - dbt_utils.expression_is_true:
+          expression: "orders_mentioning_aspect <= orders_with_review_text"
+          config:
+            error_if: ">0"
+      - dbt_utils.expression_is_true:
+          expression: "orders_with_review_text <= orders_in_segment"
+      - dbt_utils.expression_is_true:
+          expression: "aspect_rate_of_all_orders <= aspect_rate_of_reviewed"
+          config:
+            where: "aspect_rate_of_reviewed is not null"

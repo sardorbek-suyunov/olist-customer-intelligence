@@ -18,6 +18,26 @@ vars:
   scd_valid_from_floor: "1900-01-01 00:00:00"
   scd_valid_to_ceiling: "9999-12-31 23:59:59"
 
+  # WHICH LABEL RUN THE MARTS SHIP.
+  #
+  # The enrichment store holds more than one: the full corpus at v1, and a
+  # 600-review v2 sample from the prompt iteration, plus a reference model's
+  # labels used to score them. Those must never mix -- an aspect frequency
+  # computed across two prompt versions cannot be told apart from a real
+  # difference in the data, which makes the number worse than useless.
+  #
+  # So the shipped run is named once, here, and `stg_review_enrichment` filters
+  # to it. Anything else in the store is invisible to the marts by construction
+  # rather than by remembering to add a WHERE clause. scripts/profile_dataset.py
+  # reads these same two values, so the README cannot describe a different run
+  # from the one the marts were built from.
+  #
+  # v2 measured better (see docs/DECISIONS.md 5b) and is NOT shipped: relabelling
+  # the corpus costs more than the remaining budget, and a half-v2 corpus is the
+  # mixed-provenance bug above.
+  shipped_label_model: "gemini-3.1-flash-lite"
+  shipped_prompt_version: "v1"
+
 models:
   olist_intelligence:
     staging:

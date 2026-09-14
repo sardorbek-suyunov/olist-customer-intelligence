@@ -38,3 +38,36 @@ sources:
             data_tests: [unique, not_null]
       - name: olist_geolocation_dataset
       - name: product_category_name_translation
+
+  # Separate source, not extra tables on olist_raw above, because that source
+  # carries an `external_location` that reads CSVs in place. These are real
+  # warehouse tables written by the enrichment pipeline, so they must not
+  # inherit it. Same schema on both engines.
+  - name: olist_enrichment
+    description: >
+      Aspect labels produced by enrichment/enrich.py. Populated by a live run,
+      or for free from the committed snapshot with `make enrich-restore`.
+    schema: "{{ env_var('BQ_RAW_DATASET', 'olist_raw') }}"
+    tables:
+      - name: review_enrichment
+        description: >
+          One row per (review text, prompt version, model), keyed by content_hash.
+          Holds several runs at once; the marts read only the shipped one.
+        columns:
+          - name: content_hash
+            description: sha256 of text + prompt version + model. The cache key.
+            data_tests: [unique, not_null]
+          - name: prompt_version
+            data_tests: [not_null]
+          - name: model
+            data_tests: [not_null]
+      - name: review_enrichment_map
+        description: >
+          review_id -> content_hash. Keyed on BOTH columns: a review has one
+          result per (prompt version, model), not one result outright, and the
+          single-column key silently overwrote the first run's mapping.
+        columns:
+          - name: review_id
+            data_tests: [not_null]
+          - name: content_hash
+            data_tests: [not_null]

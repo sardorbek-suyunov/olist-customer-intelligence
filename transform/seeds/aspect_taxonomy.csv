@@ -1,0 +1,17 @@
+aspect,aspect_group,parent_aspect,is_delivery_complaint
+delivery_late,fulfilment,,true
+delivery_fast,fulfilment,,false
+not_received,fulfilment,,true
+partial_delivery,fulfilment,,true
+split_shipment,fulfilment,delivery_late,true
+delivery_carrier_issue,fulfilment,delivery_late,true
+tracking_missing,fulfilment,delivery_late,true
+freight_cost,fulfilment,,false
+product_defect,product,,false
+product_quality,product,,false
+wrong_item,product,,false
+not_as_described,product,product_quality,false
+packaging,product,,false
+seller_unresponsive,seller,,false
+seller_recommended,seller,,false
+refund_or_billing,seller,,false

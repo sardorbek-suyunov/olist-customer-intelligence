@@ -27,3 +27,29 @@ seeds:
     columns:
       - name: raw_value
         data_tests: [not_null]
+
+  - name: aspect_taxonomy
+    description: |
+      The 16 review aspects, generated from enrichment/taxonomy.py by
+      `make taxonomy-seed`. Never hand-edited: a second copy of the aspect list
+      is the exact failure this project keeps finding, so SQL gets a rendering
+      of the Python definition rather than its own. CI fails if it is stale.
+
+      Its job in the mart is to supply the complete grid, so an aspect a segment
+      never mentions lands as an explicit zero instead of a missing row.
+    columns:
+      - name: aspect
+        description: Aspect name. Matches the enum the API response schema enforces.
+        data_tests: [unique, not_null]
+      - name: aspect_group
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [fulfilment, product, seller]
+      - name: is_delivery_complaint
+        description: |
+          Derived from DELIVERY_COMPLAINT_ASPECTS in taxonomy.py, not requested
+          from the model and not written as a CASE expression in SQL. Asking the
+          model for it would create a second source that can contradict the
+          aspect list it is derived from.
+        data_tests: [not_null]
