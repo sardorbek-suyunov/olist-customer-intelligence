@@ -42,10 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bq-dataset", default="olist_marts")
     args = parser.parse_args(argv)
 
+    # Temp, not the repo -- see measure_vector_search_bytes.py for what happens
+    # when scratch output lands in a directory `git add -A` can reach.
+    import tempfile
+
     import duckdb
 
-    scratch = ROOT / "data" / f"_bq_load_{args.table}.parquet"
-    scratch.parent.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(prefix="olist-mart-")) / f"_bq_load_{args.table}.parquet"
 
     con = duckdb.connect(str(args.duckdb_path), read_only=True)
     try:

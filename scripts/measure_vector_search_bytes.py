@@ -194,8 +194,15 @@ def main(argv: list[str] | None = None) -> int:
     fq = f"{project}.{args.dataset}.{args.table}"
 
     if args.load:
-        out = ROOT / "data" / f"review_embeddings_{args.dimensions}.parquet"
-        out.parent.mkdir(parents=True, exist_ok=True)
+        # A TEMP directory, not the repo. This wrote 238 MB into data/ and a
+        # later `git add -A` swept it into a commit, which GitHub rejected on
+        # push -- after the commit was already made, so it needed a history
+        # rewrite rather than a delete. Scratch output does not belong inside a
+        # working tree that anything runs `add -A` over.
+        import tempfile
+
+        scratch = Path(tempfile.mkdtemp(prefix="olist-embeddings-"))
+        out = scratch / f"review_embeddings_{args.dimensions}.parquet"
         rows = export_parquet(args.duckdb_path, args.dimensions, out, args.model)
         size = out.stat().st_size
         print(f"exported {rows:,} vectors -> {out.name} ({_human(size)})")

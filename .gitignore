@@ -20,6 +20,14 @@ archive/
 # survive a lapsed service-account credential.
 data/slices/
 
+# Everything else generated under data/ too. A 238 MB embedding export written
+# here by a measurement script was swept into a commit by `git add -A` and
+# rejected by GitHub's 100 MB limit on push -- after the commit existed, so it
+# cost a history rewrite. The scripts now write to a temp directory; this is the
+# belt that makes a relapse unpushable rather than merely regrettable.
+data/*.parquet
+data/*.csv
+
 # ---------------------------------------------------------------------------
 # Credentials. Listed before any GCP key exists on disk, on purpose.
 # ---------------------------------------------------------------------------
