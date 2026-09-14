@@ -23,6 +23,14 @@ class Price:
     batch_in: float
     batch_out: float
     note: str = ""
+    # Pro models charge a higher rate once the PROMPT crosses a threshold. Unlike
+    # the 2027-01-01 increases above -- which depend on the date and so are left
+    # as a note -- this one is computable from the arguments cost_usd() already
+    # receives, and a rate that could be applied but is not is the same silent
+    # mispricing the exact-id rule exists to prevent.
+    long_in: float | None = None
+    long_out: float | None = None
+    long_threshold: int = 200_000
 
 
 # Keyed on the EXACT model id, not a prefix.
@@ -40,6 +48,21 @@ MODELS: dict[str, Price] = {
     "gemini-3.1-flash-lite": Price(0.25, 1.50, 0.125, 0.75),
     "gemini-3.5-flash-lite": Price(0.30, 2.50, 0.15, 1.25),
     "gemini-2.5-flash-lite": Price(0.10, 0.40, 0.05, 0.20),
+    # The eval reference labeller. Tiered above a 200k-token prompt; this project
+    # batches 20 short reviews per call, so the standard tier always applies and
+    # the long tier is recorded to keep that true by construction rather than by
+    # assumption.
+    "gemini-3.1-pro-preview": Price(
+        2.00, 12.00, 1.00, 6.00, "tiered >200k prompt", long_in=4.00, long_out=18.00
+    ),
+    # Embeddings: input only, so the output rate is a real 0.00 rather than a gap.
+    #
+    # gemini-embedding-001 is deliberately ABSENT. It is still callable, but it
+    # does not appear on Google's pricing page -- the only rates for it come from
+    # third-party aggregators. An unpriced model logs 0.00 and warns, which is
+    # visible; inventing a rate from an uncitable source is precisely the failure
+    # this table was rewritten to avoid.
+    "gemini-embedding-2": Price(0.20, 0.00, 0.10, 0.00, "input only"),
 }
 
 # Thinking tokens bill at the OUTPUT rate and are reported separately by the API,
@@ -71,4 +94,9 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int, batch: bool = Fa
         return 0.0
     rate_in = price.batch_in if batch else price.standard_in
     rate_out = price.batch_out if batch else price.standard_out
+    if price.long_in is not None and input_tokens > price.long_threshold:
+        # Both rates move together on the published table, and the batch long
+        # rates are exactly half the standard ones, as everywhere else here.
+        rate_in = price.long_in / 2 if batch else price.long_in
+        rate_out = (price.long_out or 0.0) / 2 if batch else (price.long_out or 0.0)
     return input_tokens / 1e6 * rate_in + output_tokens / 1e6 * rate_out
