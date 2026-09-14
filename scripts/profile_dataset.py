@@ -317,6 +317,21 @@ def enrichment_figures() -> None:
             fig(f"nl2sql_{category}_matched", matched)
             fig(f"nl2sql_{category}_total", total)
 
+    # What a demo-shaped VECTOR_SEARCH actually billed, from an EXECUTED query
+    # rather than a dry run. Dry runs approved two queries in that measurement
+    # that could not run at all, so the README quotes the billed figure.
+    vs_file = eval_dir / "vector_search_bytes.json"
+    if vs_file.exists():
+        vs = json.loads(vs_file.read_text(encoding="utf-8"))
+        fig("vector_search_worst_mib", round(vs["worst_billed_bytes"] / 1024**2, 1))
+        fig("vector_search_pct_ceiling", vs["worst_pct_of_query_ceiling"])
+        fig("vector_search_headroom_x", vs["headroom_x"])
+        fig("vector_search_per_session", vs["searches_per_session"])
+        fig("vector_search_dimensions", vs["dimensions"])
+        for row in vs["queries"]:
+            if row["query"].startswith("1."):
+                fig("vector_search_bare_mib", round(row["billed_bytes"] / 1024**2, 1))
+
     # Embeddings: costed by scripts/cost_embeddings.py, not yet run. Read from
     # its output rather than typed into the template, so "costed, not yet run"
     # is still a generated claim and cannot drift from the measurement.

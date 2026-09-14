@@ -525,6 +525,55 @@ Segmentation is on Recency and Monetary; frequency travels as a count and a
 flag. An honest two-dimensional segmentation beats a three-dimensional one whose
 third dimension is noise.
 
+### Embeddings: executed, and the search verified
+
+All **35,616** distinct texts embedded at
+1,536 dimensions. **686,882 tokens,
+$0.1374** — against a pre-spend estimate of 686,882 ± 1,260,
+so the measurement was out by 28 tokens.
+
+`make embed-reconcile` compares the cost log against the vectors that actually
+exist: **gap zero**, every vector accounted for.
+
+**Do the vectors mean anything?** "35,616 rows written" is not a result — a run
+that silently produced garbage writes exactly the same number of rows. Nearest
+neighbours, with the aspect labels alongside as an independent check:
+
+```
+QUERY "o produto chegou quebrado"        QUERY "entrega atrasou muito"
+ 0.99  o produto veio quebrado            0.96  atrasou a entega
+ 0.95  produto veio danificado            0.96  muita demora na entrega
+ 0.94  produto chegou no prazo porem      0.94  demora com a entrega
+       veio quebrado                      0.92  entrega muito atrasada.
+ 0.93  produto veio com defeito           0.92  ta demorando a entrega nao
+ 0.93  recebi o produto danificado              resebi minha compra ainda
+ → 5/5 labelled product_defect           → 5/5 labelled delivery_late
+```
+
+Not everything is that clean, and the weak case is worth stating: *"o vendedor
+nao respondeu minhas mensagens"* returns only 2 of 5 labelled
+`seller_unresponsive`, the rest `not_received` — and the similarity drops to
+0.83, which correctly signals the weaker match.
+
+### Does a demo-shaped VECTOR_SEARCH fit under the ceiling?
+
+Yes, with 2.4× to spare — but the interesting answer is *which* ceiling binds.
+
+| query | billed | % of 1 GiB/query |
+|---|---:|---:|
+| bare `VECTOR_SEARCH` | 419.0 MiB | — |
+| **full demo shape** (search + text + orders + aspects) | **435.0 MiB** | **42.5%** |
+
+Executed, not estimated. That distinction is load-bearing here: a dry run
+approved two queries during this measurement that **could not run at all** — one
+against a table whose arrays had silently loaded empty, one with a zero probe
+vector. Both times it returned a comfortable number.
+
+**The per-query ceiling is not the constraint. The 5 GiB session budget is:** it
+allows only **11 searches per session**. At 3072
+dimensions it would be five. The truncation to 1536 was chosen on this
+arithmetic before the run, and the measurement confirms it.
+
 ### Embeddings: costed before being spent
 
 686,882 tokens (±1,260 at 95%), **$0.1374**
@@ -821,8 +870,9 @@ was shared because a service-account key expired is worse than no demo.
 | Per-aspect eval + v1→v2 prompt iteration | **Executed** — 600-review sample, micro F1 0.905 → 0.916; recall reported for 3 of 16 aspects and withheld for 13 |
 | `fct_segment_aspect` (RFM × aspect, coverage as a column) | **Built and tested** — complete grid, provenance-stamped, 79 dbt tests green |
 | Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 61 unit tests including a ten-thread concurrency check |
-| Review embeddings (`gemini-embedding-2`, 1536-d) | **Costed, not yet run** — 686,882 tokens measured (±1,260), $0.1374 |
-| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and tested** — 61 unit tests; gold set of 25 question/SQL pairs |
+| Review embeddings (`gemini-embedding-2`, 1,536-d) | **Executed** — all 35,616 texts, $0.1374, cost log reconciles to zero gap |
+| `VECTOR_SEARCH` under the byte ceiling | **Measured on executed queries** — 435.0 MiB, 42.5% of the per-query ceiling |
+| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 22/25 execution accuracy (88.0%), 61 unit tests |
 | Secret scan over full git history, in CI | **Executed** — clean; verified against a planted key that the scan can fail |
 
 Planned means planned. Nothing in this README describes code that does not

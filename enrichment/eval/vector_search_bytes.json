@@ -1,0 +1,40 @@
+{
+  "dimensions": 1536,
+  "rows": 35616,
+  "query_ceiling_bytes": 1073741824,
+  "session_ceiling_bytes": 5368709120,
+  "worst_billed_bytes": 456130560,
+  "worst_pct_of_query_ceiling": 42.5,
+  "headroom_x": 2.4,
+  "searches_per_session": 11,
+  "queries": [
+    {
+      "query": "1. bare VECTOR_SEARCH (the number arithmetic gives you)",
+      "dry_run_bytes": 438860352,
+      "billed_bytes": 439353344,
+      "pct_of_query_ceiling": 40.9,
+      "rows": 10
+    },
+    {
+      "query": "2. + the review text, which the demo must display",
+      "dry_run_bytes": 445181437,
+      "billed_bytes": 445644800,
+      "pct_of_query_ceiling": 41.5,
+      "rows": 10
+    },
+    {
+      "query": "3. + order context (the join the app actually does)",
+      "dry_run_bytes": 455378716,
+      "billed_bytes": 456130560,
+      "pct_of_query_ceiling": 42.5,
+      "rows": 10
+    },
+    {
+      "query": "4. FULL DEMO SHAPE: search + text + orders + segment aspects",
+      "dry_run_bytes": 455383220,
+      "billed_bytes": 456130560,
+      "pct_of_query_ceiling": 42.5,
+      "rows": 960
+    }
+  ]
+}

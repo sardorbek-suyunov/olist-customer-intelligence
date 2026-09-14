@@ -608,3 +608,46 @@ reader as a confident wrong number.
 
 **The number ships with its failures.** 19 of 25 with six explained is a stronger claim
 than 25 of 25, and it is the standard the aspect eval is already held to.
+
+## 16. BigQuery loaded the vectors twice, wrongly, and the dry run approved both
+
+**The call.** `scripts/measure_vector_search_bytes.py` lands the Parquet in a staging
+table with an INFERRED schema, flattens it to `ARRAY<FLOAT64>` in SQL, verifies every
+row is 1536-dimensional, and then measures by EXECUTING the queries rather than only
+planning them.
+
+**Why all four steps exist.** Each one is a failure that happened.
+
+*Inferred schema* gives a `RECORD` column. The data is all there -- 420.8 MiB of it --
+and `VECTOR_SEARCH` refuses the type outright. Loud, and easy to fix.
+
+*Explicit `REPEATED FLOAT64`* gives the right type and silently drops every value.
+35,616 rows load, the job succeeds, the table reports 3.4 MiB, and `array_length` is
+**0 on every row**. Nothing failed. This is much worse than the first failure, and it
+is the one that would have shipped.
+
+*The dry run approved it.* Against that empty table, planning the search returned
+"1.2 MiB, 0.1% of the per-query ceiling, OK". The query only fails when executed:
+"Dimension of column embedding in the base table does not match the dimension of the
+query data." A dry run validates the shape of a statement, not the contents of a
+table -- so a byte measurement built on dry runs alone reported a comfortable pass on
+a table that could not be searched at all.
+
+It approved a second impossible query later, for a different reason: an all-zeros
+probe vector plans fine and then fails with "Cannot compute cosine distance against
+zero vector". Hence a real vector, read out of the table.
+
+**And the script wrote its own version of the bug.** Against the empty table it printed
+`Worst case 0.0 B, infx inside the per-query ceiling` -- a pass describing a
+measurement that never happened, produced by the script written to measure one. It now
+refuses to report when the table is empty or when every query failed to plan.
+
+**What the measurement says.** The full demo shape -- search, then joins to the review
+text, the orders fact and the aspect mart -- bills 435 MiB, 42.5% of the 1 GiB
+per-query ceiling. It fits, 2.4x over.
+
+The useful finding is which ceiling actually binds. The 5 GiB per-SESSION budget allows
+**11 such searches**, not the 50 queries `DEFAULT_MAX_QUERIES_PER_SESSION` permits. At
+3072 dimensions it would be five. The truncation to 1536 was chosen on arithmetic
+before the run and the measurement confirms it -- but the session budget, not the
+per-query one, is the number to watch when the demo is wired up.

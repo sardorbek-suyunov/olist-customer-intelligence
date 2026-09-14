@@ -138,5 +138,11 @@
   "single_order_customers": 93099,
   "source_rows_total": 1550851,
   "spurious_versions_removed": 0,
-  "tied_pairs": 290
+  "tied_pairs": 290,
+  "vector_search_bare_mib": 419.0,
+  "vector_search_dimensions": 1536,
+  "vector_search_headroom_x": 2.4,
+  "vector_search_pct_ceiling": 42.5,
+  "vector_search_per_session": 11,
+  "vector_search_worst_mib": 435.0
 }

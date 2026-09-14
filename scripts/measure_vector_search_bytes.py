@@ -26,6 +26,7 @@ about a cent a month.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -41,34 +42,75 @@ from enrichment.store import RAW_SCHEMA, embedding_table  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def export_parquet(duckdb_path: Path, dimensions: int, out: Path) -> int:
+def export_parquet(duckdb_path: Path, dimensions: int, out: Path, model: str) -> int:
     """
     DuckDB -> Parquet, with the embedding as a plain list of DOUBLE.
 
     BigQuery's VECTOR_SEARCH takes ARRAY<FLOAT64>. DuckDB's fixed-size
-    ARRAY(FLOAT) does not map to that on its own, so the cast is explicit here
-    rather than left to whatever the writer guesses.
+    ARRAY(FLOAT) does not map to that on its own, so the cast is explicit rather
+    than left to whatever the writer guesses.
+
+    THE REVIEW_ID CANNOT BE JOINED FROM THE MAP.
+    `review_enrichment_map` is keyed on the LABEL hash -- content_hash(text,
+    'v1', flash-lite) -- and an embedding row carries content_hash(text,
+    'RETRIEVAL_DOCUMENT:1536', embedding-2). Same review, two different hashes,
+    by design: the variant is part of the cache key. Joining them directly
+    returns zero rows, which is what the first version of this did. It exported
+    an empty Parquet, loaded an empty table, and the measurement then reported
+    every query as comfortably inside the ceiling.
+
+    So the bridge is built in Python from the one `content_hash` definition:
+    embedding hash -> text -> label hash -> review_id.
     """
     import duckdb
+
+    from enrichment.enrich import load_reviews
+    from enrichment.store import content_hash
+
+    variant = f"RETRIEVAL_DOCUMENT:{dimensions}"
+    label_variant, label_model = "v1", "gemini-3.1-flash-lite"
+
+    bridge = []
+    for review_id, text in load_reviews(None, 11):
+        bridge.append(
+            (
+                content_hash(text, variant, model),
+                content_hash(text, label_variant, label_model),
+                review_id,
+            )
+        )
 
     con = duckdb.connect(str(duckdb_path), read_only=True)
     try:
         table = embedding_table(dimensions)
         rows = con.execute(f"select count(*) from {RAW_SCHEMA}.{table}").fetchone()[0]
         con.execute(
+            "create temp table bridge(embed_hash varchar, label_hash varchar, review_id varchar)"
+        )
+        con.executemany("insert into bridge values (?,?,?)", bridge)
+        con.execute(
             f"""copy (
                     select
                         e.content_hash,
-                        m.review_id,
+                        b.review_id,
                         cast(e.embedding as double[]) as embedding
                     from {RAW_SCHEMA}.{table} e
                     join (
-                        select content_hash, min(review_id) as review_id
-                        from {RAW_SCHEMA}.review_enrichment_map
-                        group by content_hash
-                    ) m on m.content_hash = e.content_hash
+                        select embed_hash, min(review_id) as review_id
+                        from bridge group by embed_hash
+                    ) b on b.embed_hash = e.content_hash
                 ) to '{out.as_posix()}' (format parquet, compression zstd)"""
         )
+        exported = con.execute(
+            f"""select count(*) from {RAW_SCHEMA}.{table} e
+                join (select distinct embed_hash from bridge) b
+                  on b.embed_hash = e.content_hash"""
+        ).fetchone()[0]
+        if exported != rows:
+            raise SystemExit(
+                f"{rows:,} vectors stored but only {exported:,} could be matched to a "
+                "review_id. The corpus and the vectors disagree; do not measure against this."
+            )
         return rows
     finally:
         con.close()
@@ -143,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset", default="olist_marts")
     parser.add_argument("--raw-dataset", default="olist_raw")
     parser.add_argument("--table", default="review_embeddings")
+    parser.add_argument("--model", default="gemini-embedding-2")
     parser.add_argument("--load", action="store_true", help="export and upload the vectors first")
     args = parser.parse_args(argv)
 
@@ -153,23 +196,72 @@ def main(argv: list[str] | None = None) -> int:
     if args.load:
         out = ROOT / "data" / f"review_embeddings_{args.dimensions}.parquet"
         out.parent.mkdir(parents=True, exist_ok=True)
-        rows = export_parquet(args.duckdb_path, args.dimensions, out)
+        rows = export_parquet(args.duckdb_path, args.dimensions, out, args.model)
         size = out.stat().st_size
         print(f"exported {rows:,} vectors -> {out.name} ({_human(size)})")
-        job = client.load_table_from_file(
+        # TWO STEPS, AND BOTH ARE NECESSARY.
+        #
+        # Loading this Parquet with an INFERRED schema gives BigQuery a RECORD
+        # column -- the data is all there, 420 MiB of it, and VECTOR_SEARCH
+        # refuses the type. Loading it with an EXPLICIT REPEATED FLOAT64 schema
+        # gives the right type and silently DROPS every value: 35,616 rows load,
+        # the job succeeds, the table reports 3.4 MiB, and every array is empty.
+        #
+        # The second failure is much worse than the first, because a dry run
+        # against it returns "1.2 MiB, OK". The query only fails when it is
+        # actually executed: "Dimension of column embedding in the base table
+        # does not match". A dry run validates the shape of the statement, not
+        # the content of the table, so a measurement built on dry runs alone
+        # reported a comfortable pass on a table that could not be searched.
+        #
+        # So: land it as RECORD, where the values survive, then flatten to a
+        # real ARRAY<FLOAT64> in SQL -- and verify the dimensions afterwards
+        # rather than trusting that the load said it worked.
+        staging = f"{fq}_staging"
+        client.load_table_from_file(
             out.open("rb"),
-            fq,
+            staging,
             job_config=bigquery.LoadJobConfig(
                 source_format=bigquery.SourceFormat.PARQUET,
                 write_disposition="WRITE_TRUNCATE",
             ),
+        ).result()
+        client.query(
+            f"""create or replace table `{fq}` as
+                select
+                    content_hash,
+                    review_id,
+                    array(select e.element from unnest(embedding.list) as e) as embedding
+                from `{staging}`"""
+        ).result()
+        client.delete_table(staging, not_found_ok=True)
+
+        dims = list(
+            client.query(
+                f"select array_length(embedding) as dims, count(*) as n "
+                f"from `{fq}` group by dims order by n desc"
+            ).result()
         )
-        job.result()
-        table = client.get_table(fq)
-        print(f"loaded {table.num_rows:,} rows, {_human(table.num_bytes)} in BigQuery\n")
+        if len(dims) != 1 or dims[0].dims != args.dimensions:
+            raise SystemExit(
+                "Vectors did not survive the load: "
+                + ", ".join(f"{d.n:,} rows at {d.dims} dims" for d in dims)
+                + f". Expected every row at {args.dimensions}."
+            )
+        print(f"  verified: every row is {dims[0].dims}-dimensional")
 
     table = client.get_table(fq)
     print(f"{fq}: {table.num_rows:,} rows, {_human(table.num_bytes)} stored")
+    if table.num_rows == 0:
+        # The first run of this printed "Worst case 0.0 B, infx inside the
+        # per-query ceiling" against an empty table -- a pass describing a
+        # measurement that never happened, which is the exact failure this
+        # repository keeps cataloguing, committed by the script written to
+        # measure one. Refuse rather than report.
+        raise SystemExit(
+            "The embedding table is EMPTY. Nothing was measured; a ceiling check "
+            "against no data is not a result. Load it with --load first."
+        )
     print(
         f"ceiling: {_human(DEFAULT_MAX_BYTES_PER_QUERY)}/query, "
         f"{_human(DEFAULT_MAX_BYTES_PER_SESSION)}/session\n"
@@ -177,10 +269,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # A literal vector, so the dry run prices the real statement rather than a
     # parameterised stand-in. Zeros scan exactly what any other vector would.
-    vector = ",".join(["0.0"] * args.dimensions)
+    row = next(iter(client.query(f"select embedding from `{fq}` limit 1").result()))
+    vector = ",".join(repr(float(x)) for x in row.embedding)
     config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
 
     worst = 0
+    measured: list[dict] = []
     for label, template in QUERIES:
         sql = template.format(
             project=project,
@@ -191,24 +285,74 @@ def main(argv: list[str] | None = None) -> int:
             vector=vector,
         )
         try:
-            job = client.query(sql, job_config=config)
+            estimated = client.query(sql, job_config=config).total_bytes_processed
+            # EXECUTED, not only planned. A dry run has now approved two queries
+            # in this script that could not run: one against a table whose arrays
+            # had silently loaded empty, and one whose probe vector was all
+            # zeros. Both times it returned a comfortable number. The billed
+            # figure is the one that describes what happened.
+            job = client.query(
+                sql,
+                job_config=bigquery.QueryJobConfig(
+                    use_query_cache=False,
+                    maximum_bytes_billed=DEFAULT_MAX_BYTES_PER_QUERY,
+                ),
+            )
+            returned = len(list(job.result()))
+            scanned = job.total_bytes_billed
         except Exception as exc:  # noqa: BLE001 - the message is the finding
             print(f"  {label}\n      FAILED: {str(exc)[:160]}\n")
+            measured.append({"query": label, "failed": str(exc)[:200]})
             continue
-        scanned = job.total_bytes_processed
         worst = max(worst, scanned)
         pct = 100 * scanned / DEFAULT_MAX_BYTES_PER_QUERY
         verdict = "OK" if scanned <= DEFAULT_MAX_BYTES_PER_QUERY else "EXCEEDS THE CEILING"
         print(f"  {label}")
-        print(f"      {_human(scanned):>10}   {pct:5.1f}% of the per-query ceiling   {verdict}")
+        print(
+            f"      dry {_human(estimated):>10}  BILLED {_human(scanned):>10}  "
+            f"{pct:5.1f}% of ceiling  {verdict}  ({returned} rows)"
+        )
+        measured.append(
+            {
+                "query": label,
+                "dry_run_bytes": int(estimated),
+                "billed_bytes": int(scanned),
+                "pct_of_query_ceiling": round(pct, 1),
+                "rows": returned,
+            }
+        )
 
     print()
     if worst > DEFAULT_MAX_BYTES_PER_QUERY:
         print("The demo-shaped query does NOT fit. Narrow the search table or drop dimensions.")
         return 1
-    headroom = DEFAULT_MAX_BYTES_PER_QUERY / worst if worst else float("inf")
+    if worst == 0:
+        raise SystemExit("Every query failed to plan; there is nothing to compare.")
+    headroom = DEFAULT_MAX_BYTES_PER_QUERY / worst
     print(f"Worst case {_human(worst)}, {headroom:.1f}x inside the per-query ceiling.")
-    print(f"Session ceiling allows {DEFAULT_MAX_BYTES_PER_SESSION // worst} such queries.")
+    per_session = DEFAULT_MAX_BYTES_PER_SESSION // worst
+    print(f"Session ceiling allows {per_session} such queries -- the TIGHTER constraint.")
+
+    out_json = ROOT / "enrichment" / "eval" / "vector_search_bytes.json"
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(
+        json.dumps(
+            {
+                "dimensions": args.dimensions,
+                "rows": table.num_rows,
+                "query_ceiling_bytes": DEFAULT_MAX_BYTES_PER_QUERY,
+                "session_ceiling_bytes": DEFAULT_MAX_BYTES_PER_SESSION,
+                "worst_billed_bytes": int(worst),
+                "worst_pct_of_query_ceiling": round(100 * worst / DEFAULT_MAX_BYTES_PER_QUERY, 1),
+                "headroom_x": round(headroom, 1),
+                "searches_per_session": int(per_session),
+                "queries": measured,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"wrote {out_json.relative_to(ROOT)}")
     return 0
 
 
