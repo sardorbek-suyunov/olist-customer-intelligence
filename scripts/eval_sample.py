@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from enrichment import taxonomy  # noqa: E402
+from enrichment import eval_io, taxonomy  # noqa: E402
 from enrichment.store import MAP, RAW_SCHEMA, RESULTS  # noqa: E402
 
 CORPUS_WITH_TEXT = 40_950  # reviews carrying a comment; see docs/figures.json
@@ -218,13 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     report(plan, labels, args.size)
 
     if args.out:
-        payload = {
-            "size": len(plan["selected"]),
-            "random": sorted(plan["random_ids"]),
-            "targeted": sorted(plan["targeted"]),
-            "seed": args.seed,
-        }
-        args.out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        eval_io.write_sample(args.out, plan["random_ids"], plan["targeted"], args.seed)
         print(f"\nwrote {args.out}")
     return 0
 

@@ -1,0 +1,253 @@
+{
+  "subject": "gemini-3.1-flash-lite",
+  "reference": "gemini-3.8-flash",
+  "subject_version": "v1",
+  "reference_version": "v1",
+  "scored": 600,
+  "random_scored": 300,
+  "eval_min_positives": 30,
+  "aspects": {
+    "delivery_late": {
+      "support": 54,
+      "tp": 45,
+      "fp": 1,
+      "fn": 9,
+      "precision": 0.9782608695652174,
+      "precision_ci95": [
+        0.8866470536689368,
+        0.99615214578451
+      ],
+      "recall": null,
+      "recall_support_random": 22,
+      "f1": null
+    },
+    "delivery_fast": {
+      "support": 167,
+      "tp": 165,
+      "fp": 6,
+      "fn": 2,
+      "precision": 0.9649122807017544,
+      "precision_ci95": [
+        0.9255736916517886,
+        0.9838216029044576
+      ],
+      "recall": 0.98989898989899,
+      "recall_support_random": 99,
+      "f1": 0.9772459432508386
+    },
+    "not_received": {
+      "support": 51,
+      "tp": 47,
+      "fp": 6,
+      "fn": 4,
+      "precision": 0.8867924528301887,
+      "precision_ci95": [
+        0.774234807801829,
+        0.9470696908322002
+      ],
+      "recall": null,
+      "recall_support_random": 26,
+      "f1": null
+    },
+    "partial_delivery": {
+      "support": 44,
+      "tp": 39,
+      "fp": 4,
+      "fn": 5,
+      "precision": 0.9069767441860465,
+      "precision_ci95": [
+        0.7839729623651224,
+        0.9632283596239253
+      ],
+      "recall": null,
+      "recall_support_random": 21,
+      "f1": null
+    },
+    "split_shipment": {
+      "support": 32,
+      "tp": 30,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1.0,
+      "precision_ci95": [
+        0.886486605238548,
+        1.0
+      ],
+      "recall": null,
+      "recall_support_random": 2,
+      "f1": null
+    },
+    "delivery_carrier_issue": {
+      "support": 30,
+      "tp": 30,
+      "fp": 2,
+      "fn": 0,
+      "precision": 0.9375,
+      "precision_ci95": [
+        0.7985287670813637,
+        0.982689433124541
+      ],
+      "recall": null,
+      "recall_support_random": 3,
+      "f1": null
+    },
+    "tracking_missing": {
+      "support": 25,
+      "tp": 25,
+      "fp": 5,
+      "fn": 0,
+      "precision": 0.8333333333333334,
+      "precision_ci95": [
+        0.6643564934133498,
+        0.9266345767456822
+      ],
+      "recall": null,
+      "recall_support_random": 6,
+      "f1": null
+    },
+    "freight_cost": {
+      "support": 26,
+      "tp": 26,
+      "fp": 4,
+      "fn": 0,
+      "precision": 0.8666666666666667,
+      "precision_ci95": [
+        0.7031867316460598,
+        0.9469034455288754
+      ],
+      "recall": null,
+      "recall_support_random": 2,
+      "f1": null
+    },
+    "product_defect": {
+      "support": 39,
+      "tp": 39,
+      "fp": 3,
+      "fn": 0,
+      "precision": 0.9285714285714286,
+      "precision_ci95": [
+        0.8099057307586495,
+        0.9754095903182838
+      ],
+      "recall": null,
+      "recall_support_random": 14,
+      "f1": null
+    },
+    "product_quality": {
+      "support": 160,
+      "tp": 121,
+      "fp": 6,
+      "fn": 39,
+      "precision": 0.952755905511811,
+      "precision_ci95": [
+        0.9007560950290322,
+        0.9781702100065303
+      ],
+      "recall": 0.8247422680412371,
+      "recall_support_random": 97,
+      "f1": 0.8841393798237203
+    },
+    "wrong_item": {
+      "support": 34,
+      "tp": 30,
+      "fp": 5,
+      "fn": 4,
+      "precision": 0.8571428571428571,
+      "precision_ci95": [
+        0.7062444577337144,
+        0.9373976896017628
+      ],
+      "recall": null,
+      "recall_support_random": 9,
+      "f1": null
+    },
+    "not_as_described": {
+      "support": 49,
+      "tp": 36,
+      "fp": 7,
+      "fn": 13,
+      "precision": 0.8372093023255814,
+      "precision_ci95": [
+        0.7002759398200749,
+        0.9188337269708506
+      ],
+      "recall": null,
+      "recall_support_random": 23,
+      "f1": null
+    },
+    "packaging": {
+      "support": 32,
+      "tp": 32,
+      "fp": 8,
+      "fn": 0,
+      "precision": 0.8,
+      "precision_ci95": [
+        0.6524269352437855,
+        0.8950001032811363
+      ],
+      "recall": null,
+      "recall_support_random": 16,
+      "f1": null
+    },
+    "seller_unresponsive": {
+      "support": 41,
+      "tp": 39,
+      "fp": 9,
+      "fn": 2,
+      "precision": 0.8125,
+      "precision_ci95": [
+        0.6806013273387145,
+        0.8980860909434855
+      ],
+      "recall": null,
+      "recall_support_random": 15,
+      "f1": null
+    },
+    "seller_recommended": {
+      "support": 83,
+      "tp": 80,
+      "fp": 11,
+      "fn": 3,
+      "precision": 0.8791208791208791,
+      "precision_ci95": [
+        0.7963850151690832,
+        0.9311449154529321
+      ],
+      "recall": 0.975609756097561,
+      "recall_support_random": 41,
+      "f1": 0.9248554913294798
+    },
+    "refund_or_billing": {
+      "support": 38,
+      "tp": 36,
+      "fp": 10,
+      "fn": 2,
+      "precision": 0.782608695652174,
+      "precision_ci95": [
+        0.6442631250888652,
+        0.8773909473154443
+      ],
+      "recall": null,
+      "recall_support_random": 10,
+      "f1": null
+    }
+  },
+  "recall_not_reported": [
+    "delivery_late",
+    "not_received",
+    "partial_delivery",
+    "split_shipment",
+    "delivery_carrier_issue",
+    "tracking_missing",
+    "freight_cost",
+    "product_defect",
+    "wrong_item",
+    "not_as_described",
+    "packaging",
+    "seller_unresponsive",
+    "refund_or_billing"
+  ],
+  "exact_match": 467,
+  "sentiment_agreement": 567,
+  "severity_agreement": 543
+}

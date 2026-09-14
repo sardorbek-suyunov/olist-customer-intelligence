@@ -30,7 +30,7 @@ import time
 import uuid
 from pathlib import Path
 
-from enrichment import taxonomy
+from enrichment import eval_io, taxonomy
 from enrichment.client import GeminiClient, GeminiError
 from enrichment.pricing import cost_usd, price_for
 from enrichment.store import (
@@ -48,13 +48,29 @@ ROOT = Path(__file__).resolve().parents[1]
 REVIEWS_CSV = ROOT / "archive" / "olist_order_reviews_dataset.csv"
 
 
-def load_reviews(sample: int | None, seed: int) -> list[tuple[str, str]]:
+def load_reviews(
+    sample: int | None, seed: int, ids: set[str] | None = None
+) -> list[tuple[str, str]]:
     """(review_id, text) for reviews that carry a comment, deterministically sampled."""
     import pandas as pd
 
     frame = pd.read_csv(REVIEWS_CSV, usecols=["review_id", "review_comment_message"])
     frame["text"] = frame.review_comment_message.fillna("").str.strip()
     frame = frame[frame.text != ""]
+
+    if ids is not None:
+        # An explicit id list is a different kind of selection from a random
+        # sample: it names the reviews, so it overrides --sample rather than
+        # composing with it. Silently sampling from within the named set would
+        # label a subset of the eval sample and score against the rest.
+        frame = frame[frame.review_id.isin(ids)]
+        found = set(frame.review_id)
+        if len(found) < len(ids):
+            raise SystemExit(
+                f"{len(ids) - len(found)} of {len(ids)} requested review ids carry no "
+                "text in the source extract; the sample and the corpus disagree"
+            )
+        return list(frame[["review_id", "text"]].itertuples(index=False, name=None))
 
     if sample is not None and sample < len(frame):
         # Seeded, so the pilot is the same 2,000 reviews at batch size 1 and at
@@ -163,6 +179,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=20)
     parser.add_argument("--sample", type=int, default=None, help="deterministic subset")
     parser.add_argument("--all", action="store_true", help="every review with text")
+    parser.add_argument(
+        "--ids-file",
+        type=Path,
+        default=None,
+        help="an eval sample file from scripts/eval_sample.py; label exactly those "
+        "reviews. Used to label the eval set with a stronger reference model.",
+    )
     parser.add_argument("--seed", type=int, default=11)
     parser.add_argument("--target", default="duckdb")
     parser.add_argument(
@@ -204,8 +227,8 @@ def main(argv: list[str] | None = None, client=None) -> int:
         level=args.log_level, format="%(asctime)s %(levelname)-8s %(name)s  %(message)s"
     )
 
-    if not args.all and args.sample is None:
-        LOG.error("pass --sample N or --all")
+    if not args.all and args.sample is None and args.ids_file is None:
+        LOG.error("pass --sample N, --all, or --ids-file FILE")
         return 2
 
     if price_for(args.model) is None:
@@ -214,7 +237,8 @@ def main(argv: list[str] | None = None, client=None) -> int:
             args.model,
         )
 
-    reviews = load_reviews(None if args.all else args.sample, args.seed)
+    ids = eval_io.read_sample_ids(args.ids_file) if args.ids_file else None
+    reviews = load_reviews(None if args.all else args.sample, args.seed, ids=ids)
     LOG.info("%s reviews with text in scope", f"{len(reviews):,}")
 
     version = taxonomy.PROMPT_VERSION
