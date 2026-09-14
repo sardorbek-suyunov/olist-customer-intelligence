@@ -1,0 +1,11 @@
+{
+  "logged_usd": 3.5805,
+  "demo_ledger_usd": 0.0635,
+  "demo_ledger_calls": 132,
+  "pre_log_usd": 1.56,
+  "pre_log_provenance": "console reading 2026-09-13, not reproducible",
+  "measured_usd": 3.644,
+  "total_usd": 5.204,
+  "ceiling_usd": 7.39,
+  "remaining_usd": 2.186
+}

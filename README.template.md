@@ -150,7 +150,7 @@ that the framework cannot:
 | `assert_no_mojibake_in_mart_text` | No non-ASCII character survives into a normalized mart column. |
 | `assert_exactly_one_current_version_per_customer` | Exactly one `is_current` row per customer. |
 | `assert_customer_versions_reconcile_to_orders` | Every order contributes to exactly one version observation. |
-| `assert_normalize_macro_matches_python` | The SQL macro and the Python helper agree on all **{{parity_rows}}** distinct location strings. Executed on DuckDB; the BigQuery path is compile-checked only (see *Validation status*). |
+| `assert_normalize_macro_matches_python` | The SQL macro and the Python helper agree on all **{{parity_rows}}** distinct location strings. Executed on **both** engines (see *Validation status*). |
 
 That last one is the most useful test in the repo, and it earned its place
 within a minute of being written.
@@ -278,6 +278,19 @@ nothing below is inferred from a compile.
 | `maximum_bytes_billed` rejects an oversized query | n/a | ✅ **observed firing** |
 | One DAG window executed end to end | ✅ executed | ⬜ not yet run |
 | Incremental `fct_orders` re-run leaves no duplicates | ✅ executed (delete+insert) | ✅ executed (merge) |
+
+**A cross-engine claim tested on one engine is not a cross-engine claim.** That
+table was true and one model in it had never been compiled for BigQuery at all:
+`GCP_PROJECT_ID` was unset, `profiles.yml` defaulted it to `''`, and every
+BigQuery command failed with a server message naming nothing. With that fixed,
+`fct_segment_aspect` failed immediately on a dialect difference the macro was
+supposed to handle — the lateral `UNNEST` alias is `as a(aspect)` on DuckDB and
+`as aspect` on BigQuery, and the macro dispatched only the extraction function
+because the alias form had been "verified on both" by testing it on DuckDB.
+
+Both engines now build all {{dbt_models}} models and {{dbt_tests}} tests. The
+default is gone, so a missing project id now says
+`Env var required but not provided: 'GCP_PROJECT_ID'`.
 
 The SCD2 figures come out identical on both engines: {{scd2_change_events}} change events
 across {{scd2_customers_changed}} customers, {{dim_customers_current}} current +
@@ -605,7 +618,7 @@ Worth recording that skipping the index is a choice and not a limitation: the
 
 `{{nl2sql_matched}} of {{nl2sql_gold_total}}` gold questions answered correctly —
 **{{nl2sql_accuracy_pct}}% execution accuracy** on `{{nl2sql_model}}`, for
-${{nl2sql_usd}} of Gemini.
+${{nl2sql_usd}} of Gemini. Live at the URL above, behind the caps.
 
 Execution accuracy means both statements are **run** and their result sets
 compared. Not string similarity: `count(*)` and `sum(1)` are the same answer and
@@ -637,20 +650,44 @@ SQL returns plausible rows and the wrong number — mostly the grain of
   loosening a comparison after seeing which cases it fails is how an accuracy
   figure stops meaning anything.
 
-### Two of the fixes on the way to that number were mine, not the model's
+### 11 → 14 → 22 → 23, and three of the four steps were my bugs
 
-The first run scored **11/25**. Most of the gap was defects in the harness and
-the prompt, and finding them is the reason the eval exists:
+The first run scored **11/25**. That number was mostly wrong, and wrong against
+the model. Finding out why is the reason the eval exists:
 
-| what was wrong | effect |
-|---|---|
-| The eval treated any `ORDER BY` in the gold as "order is part of the answer" | Failed 3 correct answers. The gold was ordered for stable output; the questions never asked for an ordering. Now an explicit `ordered` flag per question. |
-| The schema prompt was built from the dbt manifest alone | The manifest only carries columns someone wrote YAML for, so the agent saw **3 of `fct_orders`' 17 columns**. `order_value` was invisible, and the agent invented a `fct_order_items` table to compute revenue from — four times. Column list now comes from the warehouse, descriptions from the manifest. |
-| `Agent` never passed `allowed_tables` to the guard | Hallucinated tables reached BigQuery as 404s instead of being refused with a message naming what *is* available. |
+| step | what changed | score |
+|---|---|---|
+| **11/25** | first run | — |
+| → **14/25** | *my bug.* The eval treated any `ORDER BY` in the gold as "order is part of the answer". It was not — the gold was ordered so its output would be stable, and three **correct** answers were failed for returning the same rows in a different order. Ordering significance is now an explicit per-question flag. | +3 |
+| → **22/25** | *my bug.* The schema prompt was built from the dbt manifest alone, and the manifest only carries columns someone wrote YAML for — so the agent was shown **3 of `fct_orders`' 17 columns**. `order_value` was invisible, and it invented a `fct_order_items` table to compute revenue from, four times. That reads as hallucination and is nearly the opposite. Column list now comes from the warehouse, descriptions from the manifest. *(Also: `Agent` never passed `allowed_tables` to the guard, so invented tables reached BigQuery as 404s instead of actionable refusals.)* | +8 |
+| → **23/25** | *the model's turn.* One targeted prompt change, after diagnosis: all three remaining failures were the same aggregate-across-aspect-grain error. The rule covered reading a **segment-level** column (`DISTINCT`/`MAX`) and said nothing about an **aspect-level** measure, which needs the opposite — `SUM` across the aspects in the group. | +1 |
 
-11 → 14 → 22. The two middle failures were mine; reporting 11/25 as the model's
-score would have been wrong in the model's disfavour, and reporting 22/25
+Reporting 11/25 would have been wrong in the model's disfavour. Reporting 23/25
 without saying what moved would be wrong in mine.
+
+### The two that remain, and why I did not make them pass
+
+Both are now the *same* shape: the agent returns the **correct values** with an
+extra context column.
+
+```
+g09  "How many customers are in the champions segment?"
+     gold   15935
+     agent  champions, 15935          ← right number, plus the label
+
+g22  "Compare champions and hibernating on delivery complaint rate"
+     gold   champions 26.8742 · hibernating 20.3745
+     agent  champions 42.23 26.8742 · hibernating 40.11 20.3745
+                    ↑ coverage, unasked but not wrong
+```
+
+Neither is wrong. Both are counted as failures anyway.
+
+Loosening the comparison **after** seeing exactly which cases it fails is how an
+accuracy figure stops meaning anything — the change would be indistinguishable
+from tuning the metric until the number improved. The rule was fixed before the
+run; it stays fixed after it. Two marks is a cheap price for that, and the
+discipline is more of a result than the two marks would have been.
 
 ### The controls, and which one actually matters
 
@@ -668,7 +705,7 @@ above, it was.
 
 ---
 
-## One failure mode, seven times
+## One failure mode, eleven times
 
 Every bug in this project that survived review shares a shape: **a status
 reported by something other than the thing being measured.** Not a wrong answer —
@@ -684,14 +721,25 @@ executing something, and each was invisible until then.
 | `AIRFLOW_EXIT=0` reports that Airflow installed | The **outer** shell's `$?`. A heredoc consumed the backslash, so the exit code came from the previous command rather than from pip. | Airflow was reported installed while `import airflow` raised `ModuleNotFoundError`. The real result was `ResolutionImpossible`. |
 | The enrichment cost log reports what the phase spent | Only the calls that went through the pipeline. Three exploratory calls made directly against the client spent $0.0863 that no row recorded. | The log is the thing the README quotes. A total that omits real spend because it was spent while deciding is still an understatement, and it under-reports in the direction nobody checks. |
 | `thinking_budget=128` reports a ceiling on thinking | A **hint**. The model returned 1,284 thought tokens against a budget of 128 — 10x over — and thought tokens bill at the output rate. | A cost projection built on that parameter would have been wrong by an order of magnitude, in the expensive direction, on the one number it existed to bound. |
+| `GCP_PROJECT_ID` defaults to `''` when unset | An empty project id, accepted by the client and sent to BigQuery, which answers `Database Error: Request couldn't be served.` | Every `dbt --target bigquery` command failed for a session while `bigquery.Client()` worked on the same machine — because that falls back to the project in ADC. A missing config read as a broken adapter. The answer was in the console URL dbt prints: `?project=&j=...` |
+| A `REPEATED FLOAT64` load schema reports 35,616 rows written | 35,616 rows of **empty arrays**. The job succeeded, the table reported 3.4 MiB, and `array_length` was 0 on every row. | The inferred schema fails loudly with the wrong type. This one succeeds, and is the version that would have shipped. |
+| A BigQuery **dry run** reports what a query will scan | The shape of the statement, not the contents of the table. Against those empty arrays it returned `1.2 MiB, 0.1% of the ceiling, OK`. | The query cannot execute at all — "Dimension of column embedding does not match". A byte measurement built on dry runs reported a comfortable pass on a table that could not be searched. |
+| The ceiling script reports the query fits | `Worst case 0.0 B, ∞x inside the per-query ceiling` — computed over zero rows. | **A safety check reporting safe because there was nothing to check**, written by the script whose entire purpose was to measure that ceiling. The sharpest instance in this table, and self-inflicted. |
 
 The Airflow one is the clearest, because the gap is widest: a green status
 printed while the thing it described did not exist. The thinking budget is the
-subtlest, and the most useful to have learned: the parameter is not lying, it
-simply does not mean what its name implies, and nothing surfaces the difference
-except measuring the result.
+subtlest: the parameter is not lying, it simply does not mean what its name
+implies, and nothing surfaces the difference except measuring the result.
 
-The fix is identical in all seven cases, and it is not "be more careful":
+**The last one is the sharpest, and it is mine.** A script written to check
+whether a query fits under a ceiling printed that it fit by an infinite margin,
+because the table it measured was empty. Every other row in this table is a
+control that reported the wrong thing; that row is a control that reported
+*safe* because there was nothing to check. It now refuses to report on an empty
+table — which is the only fix that distinguishes "measured and fine" from
+"measured nothing".
+
+The fix is identical in all eleven cases, and it is not "be more careful":
 
 - **Count from the table, not from the job** — a partition-pruned `COUNT(*)`.
 - **Compile the macro, never transcribe it** — `dbt compile` renders what the
@@ -707,6 +755,13 @@ The fix is identical in all seven cases, and it is not "be more careful":
   were exploratory.
 - **Measure the parameter's effect, do not trust its name** — one probe call,
   about eight cents, replaced a projection that was out by 10x.
+- **Let a missing value be missing** — an `env_var` default turned an absent
+  project id into a server error naming nothing. Without the default, dbt says
+  `Env var required but not provided: 'GCP_PROJECT_ID'`.
+- **Verify the data landed, not that the load returned** — `array_length` on
+  every row, after the job reports success.
+- **Execute the thing you are measuring** — a plan is not a result, and a
+  measurement of nothing is not a pass.
 
 Every control in this repository is an instance of that: the completion marker
 that a slice writes only after every table lands, the parity test that re-derives
@@ -739,6 +794,32 @@ There is **no synthetic date mapping** and this project does not claim live
 daily operation. Mapping wall-clock time onto a fake Olist date would make every
 recency figure on the dashboard fabricated, and the cost of being caught at that
 is much higher than the cost of an absent badge. → [ADR 0002](docs/adr/0002-post-2018-schedule.md)
+
+---
+
+## What this cost
+
+| | | |
+|---|---:|---|
+| enrichment cost log | ${{spend_logged_usd}} | measured, per call |
+| demo ledger (NL→SQL + agent eval) | ${{spend_demo_ledger_usd}} | measured, {{spend_demo_ledger_calls}} calls |
+| pilots predating the log | ${{spend_pre_log_usd}} | **remembered**, from a console reading |
+| **total** | **${{spend_total_usd}}** | of a ${{spend_ceiling_usd}} ceiling |
+| remaining | ${{spend_remaining_usd}} | |
+
+**${{spend_measured_usd}} of that is measured per call. ${{spend_pre_log_usd}} is
+not**, and that is stated rather than folded in. The earliest pilots ran before
+the cost log existed, so no amount of summing recovers them; the figure comes
+from a console reading taken at the time and is the one number here that cannot
+be regenerated. There is no API that returns "how much have I spent" without a
+BigQuery billing export configured in advance — `make spend --verify` prints the
+console URL to check it against.
+
+Two ledgers, because there were two and nothing summed them: the enrichment log
+never saw the agent's calls, and the README used to quote the enrichment log
+alone. That is the same shape as the other entries in the failure table — not a
+wrong number, a number that did not know about some of the events it claimed to
+summarise.
 
 ---
 

@@ -317,6 +317,23 @@ def enrichment_figures() -> None:
             fig(f"nl2sql_{category}_matched", matched)
             fig(f"nl2sql_{category}_total", total)
 
+    # Total spend across BOTH ledgers, plus the pre-log gap. The README used to
+    # quote the enrichment cost log alone, which cannot see the agent's calls.
+    spend_file = eval_dir / "spend.json"
+    if spend_file.exists():
+        spend = json.loads(spend_file.read_text(encoding="utf-8"))
+        for key in (
+            "logged_usd",
+            "demo_ledger_usd",
+            "demo_ledger_calls",
+            "pre_log_usd",
+            "measured_usd",
+            "total_usd",
+            "ceiling_usd",
+            "remaining_usd",
+        ):
+            fig(f"spend_{key}", spend[key])
+
     # What a demo-shaped VECTOR_SEARCH actually billed, from an EXECUTED query
     # rather than a dry run. Dry runs approved two queries in that measurement
     # that could not run at all, so the README quotes the billed figure.

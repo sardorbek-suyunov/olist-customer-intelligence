@@ -52,13 +52,13 @@ jobs:
       - name: Unit tests
         # enrichment/tests run here on purpose: the whole pipeline except the
         # HTTP call is exercised offline, so CI needs no Gemini key.
-        run: python -m pytest analytics/tests ingestion/tests enrichment/tests -q
+        run: python -m pytest analytics/tests ingestion/tests enrichment/tests dashboard/tests -q
       # `make` is installed on the runner but not on the development machine, so
       # these recipes had only ever been read. -n expands and prints them without
       # executing, which catches a mangled line continuation or a typo'd variable
       # -- both of which had already happened and gone unnoticed.
       - name: Makefile recipes expand
-        run: make -n help lint test profile secrets embed embed-reconcile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run
+        run: make -n help lint test profile spend dashboard-deploy-check secrets embed embed-reconcile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run
 
       - name: dbt parse
         working-directory: transform

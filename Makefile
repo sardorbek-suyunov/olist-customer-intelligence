@@ -83,6 +83,16 @@ eval-score: ## Score the shipped labels against the reference model
 	  --reference $(or $(REFERENCE),gemini-3.8-flash) \
 	  --subject-version $(or $(SUBJECT_VERSION),v1) --reference-version v1
 
+.PHONY: spend
+spend: ## Total API spend across both ledgers, with the unmeasurable gap named
+	python scripts/reconcile_spend.py --verify
+
+.PHONY: dashboard-deploy-check
+dashboard-deploy-check: ## Everything the deployed app needs, checked locally
+	python -m pytest dashboard/tests -q
+	python scripts/export_snapshot.py
+	python scripts/export_demo_examples.py
+
 .PHONY: secrets
 secrets: ## Scan the FULL commit history for credentials (not just the tree)
 	@echo 'Isolated on purpose: trufflehog3 pins attrs==20.3.0 and breaks dbt.'
