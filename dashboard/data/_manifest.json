@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-09-13T08:16:52.297347+00:00",
+  "generated_at": "2026-09-14T14:39:08.129390+00:00",
   "source": "duckdb marts built by `make build`",
   "tables": {
     "dim_customers": {
       "rows": 96355,
-      "bytes": 4601280
+      "bytes": 4605867
     },
     "dim_products": {
       "rows": 32951,
@@ -12,11 +12,15 @@
     },
     "dim_sellers": {
       "rows": 3095,
-      "bytes": 115436
+      "bytes": 115426
     },
     "fct_orders": {
       "rows": 99441,
-      "bytes": 10217999
+      "bytes": 10219204
+    },
+    "fct_segment_aspect": {
+      "rows": 96,
+      "bytes": 5503
     }
   }
 }

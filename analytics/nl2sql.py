@@ -138,6 +138,22 @@ def columns_from_bigquery(client, schema: str = MARTS_SCHEMA) -> dict[str, list[
     return out
 
 
+def columns_from_snapshot(runner) -> dict[str, list[str]]:
+    """
+    Columns as the Parquet snapshot actually has them.
+
+    Same principle as the BigQuery version: ask the thing that holds the data
+    what columns it has, rather than the manifest, which only knows the ones
+    somebody documented.
+    """
+    from analytics.snapshot_runner import SNAPSHOT_TABLES
+
+    return {
+        table: [row[0] for row in runner.con.execute(f"describe {table}").fetchall()]
+        for table in SNAPSHOT_TABLES
+    }
+
+
 def mart_tables(manifest_path: Path = MANIFEST, schema: str = MARTS_SCHEMA) -> set[str]:
     """The marts that exist, from the same manifest the prompt is built from."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -212,26 +228,48 @@ class Agent:
 
     def __init__(
         self,
-        bq_client,
+        bq_client=None,
         model: str = DEFAULT_MODEL,
         gemini_client=None,
         demo_budget: DemoBudget | None = None,
         query_budget: QueryBudget | None = None,
         max_rows: int | None = None,
         schema: str = MARTS_SCHEMA,
+        runner=None,
     ) -> None:
+        """
+        Two execution backends, one agent.
+
+        `bq_client` runs the SQL against BigQuery under bq_safety's byte
+        ceilings -- what the gold set is scored against, because that is the
+        deployed warehouse. `runner` takes any object with `.run(sql, max_rows)`,
+        which is how the public demo executes against the committed Parquet
+        snapshot instead: no credential on a public host, and no bytes billed by
+        a stranger's question. See analytics/snapshot_runner.py.
+
+        What does NOT change between them is everything that decides whether the
+        SQL may run at all. The guard, the LIMIT and the Gemini budget are
+        properties of the agent, not of the warehouse.
+        """
+        if bq_client is None and runner is None:
+            raise ValueError("give the agent a bq_client or a runner")
         self.model = model
         self.schema = schema
         self.max_rows = max_rows if max_rows is not None else settings.nl2sql_max_rows()
         self.budget = demo_budget or DemoBudget(model=model, **settings.gemini_budget_settings())
-        self.runner = SafeQueryRunner(
+        self.runner = runner or SafeQueryRunner(
             bq_client, query_budget or QueryBudget(**settings.query_budget_settings())
         )
         self._gemini = gemini_client
         self.tables = mart_tables(schema=schema)
-        # Read once per agent: the column list comes from the warehouse
-        # because the manifest only knows the columns someone wrote YAML for.
-        self.columns = columns_from_bigquery(bq_client, schema=schema)
+        # The column list comes from the warehouse rather than the manifest,
+        # which only knows the columns someone wrote YAML for. Against the
+        # snapshot it comes from the Parquet files, for the same reason.
+        self.columns = (
+            columns_from_bigquery(bq_client, schema=schema)
+            if bq_client is not None
+            else columns_from_snapshot(self.runner)
+        )
 
     def _client(self):
         if self._gemini is None:
@@ -279,7 +317,14 @@ class Agent:
         # Without it the agent invented olist_marts.fct_order_items twice and
         # the guard waved both through.
         checked = check(sql, allowed_tables=self.tables, max_rows=self.max_rows)
-        rows, billed = self.runner.run(checked.sql, max_rows=self.max_rows)
+        result = self.runner.run(checked.sql, max_rows=self.max_rows)
+        # SafeQueryRunner returns (rows, bytes); the snapshot runner returns a
+        # frame and bills nothing. Normalised here rather than making the
+        # snapshot pretend to have a byte count it does not have.
+        if isinstance(result, tuple):
+            rows, billed = result
+        else:
+            rows, billed = result.to_dict("records"), 0
         return Answer(
             question=question,
             sql=checked.sql,

@@ -11,3 +11,17 @@ dlt[duckdb,bigquery]>=1.5.0
 pydantic>=2.0
 pytest>=8.0
 ruff>=0.6.0
+
+# The same omission as dbt-bigquery above, found the same way: everything below
+# is imported somewhere in this repository and none of it was declared, so a
+# fresh clone could run the tests and not the dashboard or the agent.
+streamlit>=1.40          # dashboard/app.py
+sqlglot>=25.0            # analytics/sql_guard.py, analytics/snapshot_runner.py
+google-genai>=1.0        # enrichment/client.py, enrichment/embed.py
+google-cloud-bigquery>=3.20  # analytics/bq_safety.py and the BigQuery paths
+PyYAML>=6.0              # scripts read dbt_project.yml for the shipped label run
+
+# NOT trufflehog3. It pins attrs==20.3.0, which is incompatible with the
+# jsonschema dbt depends on, and installing it here breaks every dbt command
+# with a traceback that names jsonschema and never mentions the scanner.
+# `make secrets` runs it through pipx; CI gives it an isolated job.

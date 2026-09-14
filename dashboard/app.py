@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import ask
 import duckdb
 import pandas as pd
 import streamlit as st
@@ -88,6 +89,12 @@ st.sidebar.caption(
 # Headline
 # ---------------------------------------------------------------------------
 st.title("Customer intelligence")
+
+# The headline feature goes first. Everything below it is a chart; this is the
+# part that shows the warehouse answering a question nobody wrote a chart for.
+ask.render()
+
+st.divider()
 
 totals = query(
     """

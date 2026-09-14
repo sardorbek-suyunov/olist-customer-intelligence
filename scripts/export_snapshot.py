@@ -22,7 +22,17 @@ ROOT = Path(__file__).resolve().parents[1]
 WAREHOUSE = ROOT / "transform" / "olist.duckdb"
 OUT = ROOT / "dashboard" / "data"
 
-MARTS = ["dim_customers", "dim_products", "dim_sellers", "fct_orders"]
+# fct_segment_aspect is in the snapshot because the NL->SQL agent answers
+# questions about it, and the public demo executes that SQL against these files
+# rather than against BigQuery -- one secret instead of two, and no bytes billed
+# by a stranger's question.
+MARTS = [
+    "dim_customers",
+    "dim_products",
+    "dim_sellers",
+    "fct_orders",
+    "fct_segment_aspect",
+]
 
 
 def main() -> int:

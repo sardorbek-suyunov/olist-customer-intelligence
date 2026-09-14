@@ -1,0 +1,22 @@
+# What the deployed dashboard needs, and nothing else.
+#
+# Streamlit Community Cloud installs a requirements.txt found beside the
+# entrypoint. The repository root has one too, and it is a superset: dbt, dlt
+# and pytest are needed to BUILD the marts and are dead weight on a host that
+# only reads the committed Parquet. Installing the root file works and takes
+# several minutes longer.
+#
+# Everything here is also in the root file, at the same floor, so the two cannot
+# disagree about a version. test_dashboard_requirements_are_a_subset checks that
+# rather than leaving it to whoever edits one of them next.
+#
+# Deliberately ABSENT: google-cloud-bigquery. The deployed demo executes the
+# agent's SQL against the committed Parquet snapshot, so it needs no BigQuery
+# client and no service-account key on a public host. That is a deployment
+# decision, not a limitation -- see analytics/snapshot_runner.py.
+streamlit>=1.40
+duckdb>=1.5.0
+pandas>=2.0
+pyarrow>=17.0
+sqlglot>=25.0
+google-genai>=1.0
