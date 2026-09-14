@@ -92,6 +92,7 @@ dashboard-deploy-check: ## Everything the deployed app needs, checked locally
 	python -m pytest dashboard/tests -q
 	python scripts/export_snapshot.py
 	python scripts/export_demo_examples.py
+	python scripts/export_agent_schema.py
 
 .PHONY: secrets
 secrets: ## Scan the FULL commit history for credentials (not just the tree)

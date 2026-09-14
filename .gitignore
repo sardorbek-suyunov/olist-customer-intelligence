@@ -41,6 +41,10 @@ data/*.csv
 # The demo's precomputed answers. Committed on purpose: they are what makes the
 # public demo useful with no API key, no warehouse and no spend.
 !dashboard/data/demo_examples.json
+# The agent's schema prompt, frozen. Committed for the same reason: the deployed
+# app has no dbt manifest (target/ is build output) and no warehouse to
+# introspect, so without this the live path dies on the first question.
+!dashboard/data/agent_schema.json
 # ...but NOT the spend ledger. That is per-deployment runtime state, and a
 # committed copy would reset every deployment's daily total to whatever was
 # true on the machine that last ran it.

@@ -51,6 +51,12 @@ LOG = logging.getLogger("olist.nl2sql")
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "transform" / "target" / "manifest.json"
+# The deployment fallback. `target/` is gitignored build output, so a clone --
+# and Streamlit Cloud -- has no manifest. scripts/export_agent_schema.py freezes
+# what the prompt needs into ~8 KB beside the demo's cached answers, for the same
+# reason those are committed: the deployed demo must not depend on build output
+# it cannot have.
+FROZEN_SCHEMA = ROOT / "dashboard" / "data" / "agent_schema.json"
 
 DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
@@ -99,9 +105,18 @@ def schema_prompt(
     and a column with no description is still listed rather than hidden.
     """
     if not manifest_path.exists():
+        # A deployment has no manifest: `target/` is gitignored build output and
+        # the deployed app has no warehouse to introspect either. Without this
+        # fallback the live path fails on the first question with "run make
+        # build" -- and ask.py catches that and tells the visitor no API key is
+        # configured, which is the wrong cause and the wrong remedy, discoverable
+        # only by typing a question into the deployed app.
+        if FROZEN_SCHEMA.exists():
+            return _prompt_from_frozen(FROZEN_SCHEMA, schema)
         raise SystemExit(
-            f"{manifest_path} not found. The schema is read from the dbt manifest "
-            "rather than hardcoded, so the project must be built first:\n  make build"
+            f"{manifest_path} not found and no frozen schema at {FROZEN_SCHEMA}. "
+            "Build the project (`make build`), or export the frozen schema with "
+            "`python scripts/export_agent_schema.py`."
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -122,6 +137,20 @@ def schema_prompt(
         for column in actual if actual else list(documented):
             note = " ".join(documented.get(column, "").split())
             lines.append(f"    {column}" + (f"  -- {note[:180]}" if note else ""))
+    return "\n".join(lines)
+
+
+def _prompt_from_frozen(path: Path, schema: str) -> str:
+    """The same rendering, from the committed artifact instead of the manifest."""
+    frozen = json.loads(path.read_text(encoding="utf-8"))
+    lines: list[str] = []
+    for name, table in frozen["tables"].items():
+        lines.append(f"\nTABLE {schema}.{name}")
+        if table.get("description"):
+            lines.append(f"  -- {table['description'][:400]}")
+        for column in table["columns"]:
+            note = column.get("description") or ""
+            lines.append(f"    {column['name']}" + (f"  -- {note[:180]}" if note else ""))
     return "\n".join(lines)
 
 
@@ -155,7 +184,10 @@ def columns_from_snapshot(runner) -> dict[str, list[str]]:
 
 
 def mart_tables(manifest_path: Path = MANIFEST, schema: str = MARTS_SCHEMA) -> set[str]:
-    """The marts that exist, from the same manifest the prompt is built from."""
+    """The marts that exist, from the same source the prompt is built from."""
+    if not manifest_path.exists() and FROZEN_SCHEMA.exists():
+        frozen = json.loads(FROZEN_SCHEMA.read_text(encoding="utf-8"))
+        return {f"{schema}.{name}".lower() for name in frozen["tables"]}
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     return {
         f"{schema}.{node['name']}".lower()

@@ -1,0 +1,274 @@
+{
+  "schema": "olist_marts",
+  "tables": {
+    "dim_customers": {
+      "description": "Type 2 customer dimension at customer_unique_id grain, hand-built because the source natural key (customer_id) is order-scoped and never repeats, which makes `dbt snapshot` structurally unable to record history here. Row counts and change-event totals: docs/figures.json.",
+      "columns": [
+        {
+          "name": "customer_sk",
+          "description": "Surrogate key, md5(customer_unique_id | version_number)."
+        },
+        {
+          "name": "customer_unique_id",
+          "description": "Person-level natural key. Repeats across versions."
+        },
+        {
+          "name": "version_number",
+          "description": "1-based, ordered by (order_purchase_timestamp, customer_id)."
+        },
+        {
+          "name": "customer_zip_code_prefix",
+          "description": ""
+        },
+        {
+          "name": "customer_city",
+          "description": ""
+        },
+        {
+          "name": "customer_state",
+          "description": ""
+        },
+        {
+          "name": "valid_from",
+          "description": "Inclusive lower bound. Floored to 1900-01-01 for version 1."
+        },
+        {
+          "name": "valid_to",
+          "description": "EXCLUSIVE upper bound. 9999-12-31 for the current version."
+        },
+        {
+          "name": "is_current",
+          "description": ""
+        },
+        {
+          "name": "first_observed_at",
+          "description": ""
+        },
+        {
+          "name": "orders_in_version",
+          "description": ""
+        }
+      ]
+    },
+    "dim_products": {
+      "description": "Type 1. One observation per product_id; no price column exists on the source.",
+      "columns": [
+        {
+          "name": "product_id",
+          "description": ""
+        },
+        {
+          "name": "product_category",
+          "description": ""
+        },
+        {
+          "name": "product_category_name_pt",
+          "description": ""
+        },
+        {
+          "name": "product_weight_g",
+          "description": ""
+        },
+        {
+          "name": "product_length_cm",
+          "description": ""
+        },
+        {
+          "name": "product_height_cm",
+          "description": ""
+        },
+        {
+          "name": "product_width_cm",
+          "description": ""
+        },
+        {
+          "name": "product_photos_qty",
+          "description": ""
+        },
+        {
+          "name": "product_name_length",
+          "description": ""
+        },
+        {
+          "name": "product_description_length",
+          "description": ""
+        },
+        {
+          "name": "product_volume_cm3",
+          "description": ""
+        }
+      ]
+    },
+    "dim_sellers": {
+      "description": "Type 1. Normalization collapses 611 raw city strings to 603.",
+      "columns": [
+        {
+          "name": "seller_id",
+          "description": ""
+        },
+        {
+          "name": "seller_zip_code_prefix",
+          "description": ""
+        },
+        {
+          "name": "seller_city",
+          "description": ""
+        },
+        {
+          "name": "seller_state",
+          "description": ""
+        },
+        {
+          "name": "seller_city_raw",
+          "description": ""
+        },
+        {
+          "name": "seller_city_was_normalized",
+          "description": ""
+        },
+        {
+          "name": "seller_latitude",
+          "description": ""
+        },
+        {
+          "name": "seller_longitude",
+          "description": ""
+        }
+      ]
+    },
+    "fct_orders": {
+      "description": "One row per order, joined to the customer dimension version valid at purchase time. A naive current-row join mis-attributes a small fraction of a percent of orders, some of them to the wrong state; the counts are measured into docs/figures.json rather than repeated here.",
+      "columns": [
+        {
+          "name": "order_id",
+          "description": ""
+        },
+        {
+          "name": "customer_sk",
+          "description": ""
+        },
+        {
+          "name": "customer_unique_id",
+          "description": ""
+        },
+        {
+          "name": "source_customer_id",
+          "description": ""
+        },
+        {
+          "name": "order_status",
+          "description": ""
+        },
+        {
+          "name": "order_purchase_timestamp",
+          "description": ""
+        },
+        {
+          "name": "order_approved_at",
+          "description": ""
+        },
+        {
+          "name": "order_delivered_customer_date",
+          "description": ""
+        },
+        {
+          "name": "order_estimated_delivery_date",
+          "description": ""
+        },
+        {
+          "name": "item_count",
+          "description": ""
+        },
+        {
+          "name": "seller_count",
+          "description": ""
+        },
+        {
+          "name": "product_count",
+          "description": ""
+        },
+        {
+          "name": "items_value",
+          "description": ""
+        },
+        {
+          "name": "freight_value",
+          "description": ""
+        },
+        {
+          "name": "order_value",
+          "description": ""
+        },
+        {
+          "name": "delivery_days",
+          "description": ""
+        },
+        {
+          "name": "delivery_days_vs_estimate",
+          "description": ""
+        }
+      ]
+    },
+    "fct_segment_aspect": {
+      "description": "RFM segment x review aspect, one row per pair, complete grid. Carries review-text coverage per segment as a column because every aspect rate here is computed over the ~41% of orders that have review text, and that share differs by segment. Frequency is deliberately NOT scored into quintiles: 96.88% of customers have exactly one order, so NTILE(5) over that column cuts ties into arbitrary blocks that look exactly like real scores. Segmentation is on R and M; frequency travels as a count and a flag. Every row is stamped with the prompt version and model that produced the labels. The marts ship v1; prompt v2 measured better and is not applied. See docs/DECISIONS.md 5b.",
+      "columns": [
+        {
+          "name": "rfm_segment",
+          "description": ""
+        },
+        {
+          "name": "aspect",
+          "description": ""
+        },
+        {
+          "name": "aspect_group",
+          "description": ""
+        },
+        {
+          "name": "is_delivery_complaint",
+          "description": ""
+        },
+        {
+          "name": "label_prompt_version",
+          "description": "The prompt version the shipped labels came from. One value across the mart."
+        },
+        {
+          "name": "label_model",
+          "description": ""
+        },
+        {
+          "name": "customers_in_segment",
+          "description": ""
+        },
+        {
+          "name": "orders_in_segment",
+          "description": ""
+        },
+        {
+          "name": "orders_with_review_text",
+          "description": ""
+        },
+        {
+          "name": "review_text_coverage_pct",
+          "description": "Share of the segment's orders carrying review text. The denominator caveat."
+        },
+        {
+          "name": "orders_mentioning_aspect",
+          "description": ""
+        },
+        {
+          "name": "reviews_mentioning_aspect",
+          "description": ""
+        },
+        {
+          "name": "aspect_rate_of_reviewed",
+          "description": ""
+        },
+        {
+          "name": "aspect_rate_of_all_orders",
+          "description": ""
+        }
+      ]
+    }
+  }
+}

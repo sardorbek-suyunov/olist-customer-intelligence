@@ -133,11 +133,16 @@ jobs:
       - name: Assert the aspect seed matches the taxonomy
         run: python scripts/export_taxonomy_seed.py --check
 
-      - name: Assert the demo's cached answers are current
+      # Both artifacts the DEPLOYED app depends on and the repo does not: the
+      # cached answers and the frozen schema prompt. Neither is reachable from a
+      # clone otherwise -- target/ is gitignored build output -- so drift here is
+      # invisible until someone types a question into the deployed demo.
+      - name: Assert the deployed demo's artifacts are current
         run: |
           python scripts/export_demo_examples.py
-          git diff --stat --exit-code dashboard/data/demo_examples.json \
-            || echo "::warning::cached demo answers differ; run 'make demo-examples' and commit"
+          python scripts/export_agent_schema.py
+          git diff --stat --exit-code dashboard/data/demo_examples.json dashboard/data/agent_schema.json \
+            || echo "::warning::deployed-demo artifacts differ; run 'make dashboard-deploy-check' and commit"
 
       - name: Assert dashboard snapshot is current
         run: |

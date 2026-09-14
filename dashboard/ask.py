@@ -138,12 +138,26 @@ def render(model: str = "gemini-3.1-flash-lite") -> None:
     # ------------------------------------------------------------------ live
     try:
         agent = _agent(model)
-    except Exception as exc:  # noqa: BLE001 - a missing key is a normal state here
-        st.info(
-            "Live questions are off on this deployment — no API key is configured. "
-            "The examples above are precomputed and always work."
-        )
-        st.caption(f"({type(exc).__name__})")
+    except Exception as exc:  # noqa: BLE001 - several normal states land here
+        # Distinguish the causes. This said "no API key is configured" for any
+        # failure, and the failure that would actually have happened on the
+        # first deployment was a MISSING SCHEMA -- `target/` is gitignored, so a
+        # clone has no dbt manifest. A visitor would have been told the wrong
+        # cause and the operator would have gone looking at the wrong secret.
+        message = str(exc)
+        if "API key" in message or "GEMINI_API_KEY" in message:
+            st.info(
+                "Live questions are off on this deployment — no API key is "
+                "configured. The examples above are precomputed and always work."
+            )
+        elif "schema" in message.lower() or "manifest" in message.lower():
+            st.warning(
+                "Live questions are unavailable: the agent's schema artifact is "
+                "missing from this build. Run `python scripts/export_agent_schema.py` "
+                "and commit `dashboard/data/agent_schema.json`."
+            )
+        else:
+            st.warning(f"Live questions are unavailable: {message[:200]}")
         return
 
     state = agent.budget.state()
