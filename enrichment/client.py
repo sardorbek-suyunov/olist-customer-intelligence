@@ -16,11 +16,14 @@ planning number and is replaced, not confirmed, by the first real run.
 
 from __future__ import annotations
 
+import logging
 import os
 import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+LOG = logging.getLogger("olist.gemini")
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
@@ -117,16 +120,80 @@ def list_models(client) -> list[str]:
     return sorted(out)
 
 
+def with_retries(call, max_attempts: int = 6, what: str = "call"):
+    """
+    Retry a transient failure with full jitter. The ONE implementation.
+
+    Extracted from GeminiClient.generate because the embedding path needed the
+    same behaviour and went without it: a full-corpus embed run died on a 429
+    after 3,187 vectors, having called the SDK directly. The labelling path
+    retried correctly the whole time, which is what made the gap easy to miss --
+    the retry existed, it was just welded to the wrong method.
+
+    Full jitter rather than plain exponential backoff: without it a batch that
+    hits a rate limit retries in lockstep with every other in-flight batch and
+    hits the same limit at the same instant.
+    """
+    last: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return call()
+        except Exception as exc:  # noqa: BLE001 - classified here, not swallowed
+            last = exc
+            if not any(token in str(exc) for token in RETRYABLE):
+                raise GeminiError(f"non-retryable {what}: {exc}") from exc
+            delay = random.uniform(0, min(60.0, 2.0**attempt))
+            LOG.warning(
+                "%s hit a retryable error (attempt %s/%s), backing off %.1fs",
+                what,
+                attempt,
+                max_attempts,
+                delay,
+            )
+            time.sleep(delay)
+    raise GeminiError(f"exhausted {max_attempts} attempts on {what}: {last}")
+
+
+def warn_if_unlogged(model: str, sink: object | None) -> None:
+    """
+    Say so, loudly, when a billable call has nowhere to be recorded.
+
+    Three exploratory calls made straight through this client once spent $0.0863
+    that no cost row recorded, and nothing surfaced it -- the log simply did not
+    know they had happened. The log is what the README quotes, so an omission
+    understates in the direction nobody checks.
+
+    A callback cannot be made mandatory without breaking every legitimate ad-hoc
+    use, so the absence is made audible instead: any client built without a sink
+    warns on construction, and the warning names the spend that will go
+    unrecorded. A probe is still allowed. It is no longer silent.
+    """
+    if sink is None:
+        LOG.warning(
+            "%s client has no cost sink: calls made through it will NOT appear in the "
+            "cost log. Fine for a probe -- record it by hand afterwards, or the log "
+            "will understate what was spent.",
+            model,
+        )
+
+
 class GeminiClient:
     """Labels a batch of reviews and reports what it cost."""
 
     def __init__(
-        self, model: str, max_attempts: int = 6, client=None, thinking_budget: int | None = None
+        self,
+        model: str,
+        max_attempts: int = 6,
+        client=None,
+        thinking_budget: int | None = None,
+        cost_sink=None,
     ) -> None:
         self.model = model
         self.max_attempts = max_attempts
         self.thinking_budget = thinking_budget
+        self.cost_sink = cost_sink
         self._client = client or make_client()
+        warn_if_unlogged(model, cost_sink)
 
     def generate(self, prompt: str, schema: dict) -> tuple[str, Usage]:
         from google.genai import types

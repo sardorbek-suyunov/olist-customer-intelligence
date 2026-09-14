@@ -39,6 +39,14 @@ RAW_SCHEMA = "olist_raw"
 
 RESULTS = "review_enrichment"
 MAP = "review_enrichment_map"
+EMBEDDINGS = "review_embeddings"
+
+
+def embedding_table(dimensions: int) -> str:
+    """Dimensionality in the table name: a 1536-d vector is not a 768-d one."""
+    return f"{EMBEDDINGS}_{dimensions}"
+
+
 QUARANTINE = "enrichment_quarantine"
 COST_LOG = "enrichment_cost_log"
 
@@ -167,6 +175,49 @@ class DuckDBStore:
                 )
                 for r in rows
             ],
+        )
+
+    def create_embedding_table(self, dimensions: int) -> None:
+        """
+        FLOAT[N], a fixed-size array, not FLOAT[].
+
+        DuckDB's `array_cosine_similarity` requires the fixed-size ARRAY type;
+        against a variable LIST it raises rather than silently doing something
+        else, which is the right way round but only if the column is declared
+        correctly in the first place. The dimensionality is in the table name so
+        a 1536-d run and a 768-d run cannot land in the same column.
+        """
+        self.con.execute(f"create schema if not exists {RAW_SCHEMA}")
+        self.con.execute(
+            f"""create table if not exists {RAW_SCHEMA}.{embedding_table(dimensions)} (
+                    content_hash varchar primary key,
+                    model varchar,
+                    variant varchar,
+                    dimensions integer,
+                    embedding float[{dimensions}],
+                    created_at timestamp)"""
+        )
+        self._embedding_dimensions = dimensions
+
+    def cached_embedding_hashes(self, hashes: list[str]) -> set[str]:
+        table = embedding_table(self._embedding_dimensions)
+        if not hashes:
+            return set()
+        rows = self.con.execute(
+            f"select content_hash from {RAW_SCHEMA}.{table} "
+            f"where content_hash in ({','.join('?' * len(hashes))})",
+            hashes,
+        ).fetchall()
+        return {h for (h,) in rows}
+
+    def write_embeddings(self, rows: list[tuple[str, str, str, int, list[float]]]) -> None:
+        if not rows:
+            return
+        table = embedding_table(self._embedding_dimensions)
+        now = _now()
+        self.con.executemany(
+            f"insert or replace into {RAW_SCHEMA}.{table} values (?,?,?,?,?,?)",
+            [(h, model, variant, dims, vector, now) for h, model, variant, dims, vector in rows],
         )
 
     def _migrate_map_grain(self) -> None:
