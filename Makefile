@@ -59,6 +59,30 @@ replay: ## Emit one slice, e.g. make replay START=2017-03-01 END=2017-04-01
 backfill: ## Replay + load the whole coverage window. TARGET=duckdb|bigquery
 	python -m ingestion.backfill --target $(TARGET)
 
+.PHONY: taxonomy-seed
+taxonomy-seed: ## Regenerate the dbt aspect seed from enrichment/taxonomy.py
+	python scripts/export_taxonomy_seed.py
+
+.PHONY: taxonomy-seed-check
+taxonomy-seed-check: ## Fail if the aspect seed has drifted from the taxonomy
+	python scripts/export_taxonomy_seed.py --check
+
+.PHONY: demo-examples
+demo-examples: ## Recompute the public demo's cached answers from the marts
+	python scripts/export_demo_examples.py --duckdb-path $(or $(DB),transform/olist.duckdb)
+
+.PHONY: embedding-cost
+embedding-cost: ## Measure what embedding the corpus would cost, before spending it
+	python scripts/cost_embeddings.py
+
+.PHONY: eval-score
+eval-score: ## Score the shipped labels against the reference model
+	python scripts/eval_score.py --duckdb-path $(or $(DB),transform/olist.duckdb) \
+	  --sample enrichment/eval/eval_sample_600.json \
+	  --subject $(or $(SUBJECT),gemini-3.1-flash-lite) \
+	  --reference $(or $(REFERENCE),gemini-3.8-flash) \
+	  --subject-version $(or $(SUBJECT_VERSION),v1) --reference-version v1
+
 .PHONY: readme
 readme: ## Render README.md from README.template.md and the measured figures
 	python scripts/render_readme.py

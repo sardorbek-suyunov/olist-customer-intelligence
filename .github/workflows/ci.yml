@@ -35,7 +35,7 @@ jobs:
       # executing, which catches a mangled line continuation or a typo'd variable
       # -- both of which had already happened and gone unnoticed.
       - name: Makefile recipes expand
-        run: make -n help lint test profile readme readme-check replay backfill verify-slices load-static validate-bq snapshot enrich gemini-check dag-run
+        run: make -n help lint test profile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run
 
       - name: dbt parse
         working-directory: transform
@@ -102,6 +102,19 @@ jobs:
       # reports 55.
       - name: Assert README matches the measured figures
         run: python scripts/render_readme.py --check
+
+      # The aspect seed is a rendering of enrichment/taxonomy.py. A hand-edited
+      # copy of the aspect list in SQL is the exact failure this project keeps
+      # finding, so drift between them fails the build rather than waiting to be
+      # noticed in a mart that quietly lost an aspect.
+      - name: Assert the aspect seed matches the taxonomy
+        run: python scripts/export_taxonomy_seed.py --check
+
+      - name: Assert the demo's cached answers are current
+        run: |
+          python scripts/export_demo_examples.py
+          git diff --stat --exit-code dashboard/data/demo_examples.json \
+            || echo "::warning::cached demo answers differ; run 'make demo-examples' and commit"
 
       - name: Assert dashboard snapshot is current
         run: |
