@@ -426,3 +426,72 @@ def test_thinking_tokens_count_as_billed_output() -> None:
     charged = cost_usd("gemini-3.7-flash", usage.input_tokens, usage.output_tokens)
     candidates_only = cost_usd("gemini-3.7-flash", usage.input_tokens, usage.candidates_tokens)
     assert charged > candidates_only * 4
+
+
+# ---------------------------------------------------------------------------
+# The map's grain. A review points at one result PER (prompt version, model),
+# not at one result full stop.
+# ---------------------------------------------------------------------------
+
+
+def test_map_keeps_both_models_for_the_same_review(tmp_path) -> None:
+    """
+    The bug this guards: the map was keyed on review_id alone, and write_map
+    uses `insert or replace`. Labelling the eval sample with a reference model
+    -- or bumping PROMPT_VERSION for the v2 prompt -- overwrote the first run's
+    mapping for exactly the reviews being compared, and raised nothing.
+    """
+    store = DuckDBStore(str(tmp_path / "grain.duckdb"))
+    cheap = content_hash("otimo produto", "v1", "model-a")
+    strong = content_hash("otimo produto", "v1", "model-b")
+    store.write_map([("r1", cheap)])
+    store.write_map([("r1", strong)])
+
+    rows = store.con.execute(
+        "select content_hash from olist_raw.review_enrichment_map where review_id = 'r1'"
+    ).fetchall()
+    store.con.close()
+    assert sorted(h for (h,) in rows) == sorted([cheap, strong]), (
+        "the reference run overwrote the production mapping"
+    )
+
+
+def test_rewriting_the_same_pair_stays_idempotent(tmp_path) -> None:
+    store = DuckDBStore(str(tmp_path / "idem.duckdb"))
+    digest = content_hash("entrega rapida", "v1", "model-a")
+    store.write_map([("r1", digest)] * 3)
+    store.write_map([("r1", digest)])
+    count = store.con.execute("select count(*) from olist_raw.review_enrichment_map").fetchone()[0]
+    store.con.close()
+    assert count == 1
+
+
+def test_legacy_single_column_key_is_migrated_without_losing_rows(tmp_path) -> None:
+    """A warehouse built before the fix must widen in place, not be rebuilt by hand."""
+    import duckdb
+
+    path = tmp_path / "legacy.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("create schema if not exists olist_raw")
+    con.execute(
+        """create table olist_raw.review_enrichment_map (
+               review_id varchar, content_hash varchar, primary key (review_id))"""
+    )
+    con.executemany(
+        "insert into olist_raw.review_enrichment_map values (?,?)",
+        [("r1", "h1"), ("r2", "h2")],
+    )
+    con.close()
+
+    store = DuckDBStore(str(path))  # opening it runs the migration
+    key = store.con.execute(
+        "select constraint_column_names from duckdb_constraints() "
+        "where table_name = 'review_enrichment_map' and constraint_type = 'PRIMARY KEY'"
+    ).fetchone()[0]
+    rows = store.con.execute(
+        "select review_id, content_hash from olist_raw.review_enrichment_map order by review_id"
+    ).fetchall()
+    store.con.close()
+
+    assert sorted(key) == ["content_hash", "review_id"]
+    assert rows == [("r1", "h1"), ("r2", "h2")]

@@ -119,8 +119,10 @@ class DuckDBStore:
         )
         c(
             f"""create table if not exists {RAW_SCHEMA}.{MAP} (
-                   review_id varchar, content_hash varchar, primary key (review_id))"""
+                   review_id varchar, content_hash varchar,
+                   primary key (review_id, content_hash))"""
         )
+        self._migrate_map_grain()
         c(
             f"""create table if not exists {RAW_SCHEMA}.{QUARANTINE} (
                    content_hash varchar, prompt_version varchar, model varchar,
@@ -166,6 +168,40 @@ class DuckDBStore:
                 for r in rows
             ],
         )
+
+    def _migrate_map_grain(self) -> None:
+        """
+        Widen the map's key from (review_id) to (review_id, content_hash).
+
+        The original key assumed one model and one prompt version would ever be
+        in play. `write_map` uses `insert or replace`, so under that key a second
+        model -- or a bumped PROMPT_VERSION, which the v1-to-v2 iteration does on
+        purpose -- silently overwrote each review's existing mapping. The rows
+        that vanished were exactly the ones needed to compare the two runs, so
+        the comparison would have been made against a map that only remembered
+        the newer side, and nothing would have raised.
+
+        The grain is one row per review per distinct result. Rows are untouched;
+        only the constraint changes. Idempotent, and a no-op on a fresh store.
+        """
+        current = self.con.execute(
+            "select constraint_column_names from duckdb_constraints() "
+            "where table_name = ? and constraint_type = 'PRIMARY KEY'",
+            [MAP],
+        ).fetchall()
+        if not current or sorted(current[0][0]) == ["content_hash", "review_id"]:
+            return
+        self.con.execute(f"alter table {RAW_SCHEMA}.{MAP} rename to {MAP}_old")
+        self.con.execute(
+            f"""create table {RAW_SCHEMA}.{MAP} (
+                    review_id varchar, content_hash varchar,
+                    primary key (review_id, content_hash))"""
+        )
+        self.con.execute(
+            f"insert into {RAW_SCHEMA}.{MAP} "
+            f"select distinct review_id, content_hash from {RAW_SCHEMA}.{MAP}_old"
+        )
+        self.con.execute(f"drop table {RAW_SCHEMA}.{MAP}_old")
 
     def write_map(self, pairs: list[tuple[str, str]]) -> None:
         if not pairs:
