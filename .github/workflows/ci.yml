@@ -39,7 +39,15 @@ jobs:
     name: Lint + unit tests
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 here for the same reason it is on the secret scan, with
+      # the sign flipped. test_referenced_commits_exist.py resolves every commit
+      # SHA cited in tracked prose; under the default shallow checkout those
+      # lookups fail against a history that was never fetched, and the failure
+      # reads "these commits do not exist" -- sending the reader after a
+      # dangling reference that is perfectly healthy. The repository is ~49 MB.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}

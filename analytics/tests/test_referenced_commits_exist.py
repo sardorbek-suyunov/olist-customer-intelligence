@@ -93,10 +93,38 @@ def referenced_shas() -> dict[str, list[str]]:
     return found
 
 
+def is_shallow() -> bool:
+    out = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip() == "true"
+
+
 def test_every_referenced_commit_resolves():
     references = referenced_shas()
     if not references:
         pytest.skip("no commit SHAs are referenced in tracked prose")
+
+    # A shallow clone cannot resolve a SHA that is simply older than its depth,
+    # so without this the failure reads "these commits do not exist" and sends
+    # the reader hunting for a dangling reference that is perfectly fine. That
+    # is the same shallow-checkout trap the secret-scan job already documents,
+    # inverted: there it made a check pass without looking, here it makes a
+    # check fail while looking at almost nothing.
+    #
+    # Still a failure, not a skip. A skip is a pass, and the point of this file
+    # is that a reference nobody resolved is indistinguishable from one that
+    # resolves.
+    assert not is_shallow(), (
+        "this is a shallow clone, so commit SHAs older than its depth cannot be "
+        "resolved and this test cannot do its job. In CI, give the job:\n"
+        "    - uses: actions/checkout@v4\n"
+        "      with:\n"
+        "        fetch-depth: 0"
+    )
 
     dangling: list[str] = []
     for sha, places in sorted(references.items()):
