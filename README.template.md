@@ -717,6 +717,67 @@ from tuning the metric until the number improved. The rule was fixed before the
 run; it stays fixed after it. {{nl2sql_mismatch_count}} marks is a cheap price
 for that, and the discipline is more of a result than the marks would have been.
 
+### A question it answers confidently and wrongly
+
+Everything above is about the agent writing SQL that is *refused*. This is the
+other failure, and it is the worse one: SQL that is accepted, executed, and
+wrong, with every guardrail passing correctly because none of them is looking at
+this.
+
+Asked **"which sellers have the longest average delivery times?"** — a natural
+question, the kind a visitor types first — the agent returned 200 rows. Every
+one of them showed `12.4873`.
+
+```sql
+SELECT s.seller_id, s.seller_city, s.seller_state,
+       avg(o.delivery_days) AS avg_delivery_days
+FROM olist_marts.fct_orders AS o
+JOIN olist_marts.dim_sellers AS s
+  ON o.seller_count > 0          -- ← not a join condition
+GROUP BY 1, 2, 3
+ORDER BY avg_delivery_days DESC
+LIMIT 200
+```
+
+`fct_orders` is at order grain and carries `seller_count`, a **count**. It has no
+`seller_id`. `dim_sellers` has no order key. The order-to-seller relationship
+lives in `order_items`, which is not a mart — so **the question is not answerable
+from this warehouse at all**.
+
+The agent did not say so. It found two tables whose names matched the question,
+could not find a key, and used the only predicate available: `o.seller_count > 0`,
+true for essentially every order. That is a cross join wearing a join's clothes.
+`12.4873` is the global average delivery time, repeated once per seller, sorted
+by a column that is the same value all the way down.
+
+**Now count what objected.** The SQL is a single `SELECT`. It reads two permitted
+tables. Every function is on the allowlist. The `LIMIT` was injected and applied.
+The call was priced before it was issued and cost $0.00062. It executed in
+milliseconds, well inside the timeout, and returned exactly 200 rows. The guard,
+the budget, the ceilings and the row cap all did precisely what they are for, and
+**not one of them is capable of noticing this**, because each asks whether the
+statement is *safe* and none asks whether it is *true*.
+
+It is also the hardest kind to catch by eye: right shape, plausible magnitude,
+real seller names down the left. You would have to know the schema to see it, and
+a visitor does not.
+
+This is **not fixed**, deliberately. The honest options are all worse than
+documenting it: a `seller_items` mart would answer this one question and not the
+next unanswerable one; a prompt rule naming this join would be tuning against a
+case already seen, which the eval section rejects for the same reason; and a
+generic "refuse joins without a key relationship" is a real feature with a real
+design, not a patch. What is written down here costs nothing and is true —
+[decision 17](docs/DECISIONS.md).
+
+It belongs in the same document as the other twelve failures, and it is a
+different shape from all of them. Those were *a status reported by something
+other than the thing being measured*. This is a **complete, correct-looking
+answer to a question the data cannot answer**, produced by a system in which
+every control passed. The guardrails bound the blast radius of a wrong query.
+They do not make the answer right, and a demo that implies otherwise is selling
+something.
+
 ### The controls, and which one actually matters
 
 | layer | what it does |
@@ -730,6 +791,53 @@ The last row is the boundary. The three above it run *inside* the application,
 so they protect against the model behaving badly, not against the application
 behaving badly. The grant survives the code being wrong — which, per the table
 above, it was.
+
+### The deployed demo does not have that boundary
+
+That table describes the **BigQuery** path. The public demo runs on DuckDB over
+committed Parquet, and the IAM row is not weakened there — **it is absent**.
+There is no service account, no grant, and no dataset permission. What replaced
+it, initially, was the process's own filesystem privileges.
+
+DuckDB permits a great deal that is not DML, so a statement-type check does not
+cover the gap. Measured against the code as it stood, not assumed:
+
+| attack | what the guard did | what actually stopped it |
+|---|---|---|
+| `COPY (SELECT * FROM fct_orders) TO '/app/x.csv'` | **allowed it** | nothing — it wrote 53 KB to disk |
+| `SELECT * FROM read_csv('/app/.env')` | refused | the *table* allowlist, which this guard's own docstring called "**NOT** the security boundary" |
+| `SELECT getenv('GEMINI_API_KEY')` | **allowed it** | DuckDB 1.5.5 has no `getenv`. Luck, one release from expiring |
+| `INSTALL httpfs; LOAD httpfs;` | refused | the one-statement rule, incidentally |
+| `ATTACH 'https://…/x.db'` | refused | a BigQuery parse error, incidentally |
+
+Three of those five were refused for reasons that had nothing to do with anyone
+deciding they should be. **A control that happens to catch an attack is not a
+control**, and the variants that route around each accident — `getenv` with a
+real table in the `FROM`, `COPY` with a permitted table, `read_text` as a scalar —
+passed everything.
+
+So the execution environment is now layered underneath the parser:
+
+| layer | what it does | proved by |
+|---|---|---|
+| `read_only=True` | the connection cannot create, write or attach | `CREATE TABLE` refused |
+| `enable_external_access=false` | no file reads, no file writes, no extension installs, no HTTP | `read_csv` on a real CSV returns `PermissionException` |
+| `lock_configuration=true` | set on the next line, so a query cannot undo the previous one | `SET enable_external_access = true` refused |
+| function **allowlist** | a vocabulary of analytic SQL, not a list of attacks someone thought of | `getenv`, `read_text`, `read_blob` refused by name |
+| query timeout | one shared connection, so a slow query is everyone's outage | a cartesian join is interrupted, not waited on |
+
+Two details that are the difference between this working and looking like it
+works. The snapshot tables are **materialised into the database** rather than
+left as views over `read_parquet(...)` — with external access off, the snapshot's
+own Parquet is a file like any other, so views would break and the temptation
+would be to leave the door open for them. And `SnapshotRunner` **attacks itself
+at startup** and refuses to serve if any probe succeeds: asserting that a `SET`
+statement did not raise only establishes that DuckDB accepted the words.
+
+Every row above is a test in `analytics/tests/test_snapshot_security.py`, and
+each asserts a **refusal** rather than a setting. Each was also verified to fail
+when its control is removed — the same standard `maximum_bytes_billed` was held
+to, which was not believed until BigQuery was seen rejecting a query with it.
 
 ---
 

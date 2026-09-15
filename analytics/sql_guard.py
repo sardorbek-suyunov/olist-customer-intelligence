@@ -45,6 +45,12 @@ DIALECT = "bigquery"
 # Node types that write, change structure, or reach outside a read. Checked by
 # type against the parsed tree, so a string literal that happens to contain the
 # word "delete" is not a finding.
+#
+# exp.Copy is here because it was NOT, and that was a real hole rather than a
+# theoretical one: `COPY (SELECT * FROM fct_orders) TO '/app/x.csv'` passed this
+# guard and wrote 53 KB to disk. COPY is not DML, so a denylist of writing
+# statement types did not contain it -- which is the argument for the function
+# allowlist below rather than a longer denylist.
 FORBIDDEN_NODES: tuple[type[exp.Expression], ...] = (
     exp.Insert,
     exp.Update,
@@ -55,6 +61,136 @@ FORBIDDEN_NODES: tuple[type[exp.Expression], ...] = (
     exp.TruncateTable,
     exp.Merge,
     exp.Grant,
+    exp.Copy,
+    exp.Attach,
+    exp.Detach,
+    exp.Set,
+    exp.Pragma,
+    exp.Use,
+    exp.Command,
+)
+
+# Functions a question about this warehouse can legitimately need.
+#
+# AN ALLOWLIST, NOT A DENYLIST, and the difference is the whole point. A denylist
+# has to name read_csv, read_text, read_blob, read_json, getenv, COPY's variants,
+# every extension's entry points, and whatever the next DuckDB release adds -- it
+# is a list of the attacks somebody has already thought of. This list is instead
+# the vocabulary the demo's own queries use, and anything outside it is refused
+# whether or not it is known to be dangerous.
+#
+# Derived from what the gold set and the worked examples actually call, plus
+# ordinary analytic SQL. analytics/tests/test_sql_guard_functions.py asserts that
+# every one of the 25 gold questions and 6 demo examples still passes, so this
+# cannot silently narrow until the agent stops working.
+ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
+    {
+        # aggregates
+        "avg",
+        "count",
+        "max",
+        "min",
+        "sum",
+        "stddev",
+        "variance",
+        "approx_distinct",
+        "any_value",
+        "median",
+        "mode",
+        "percentile_cont",
+        # windows and ordering
+        "row_number",
+        "rank",
+        "dense_rank",
+        "ntile",
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "over",
+        # null handling and conditionals
+        "coalesce",
+        "ifnull",
+        "nullif",
+        "if",
+        "iif",
+        "case",
+        "greatest",
+        "least",
+        # numeric
+        "abs",
+        "ceil",
+        "ceiling",
+        "floor",
+        "round",
+        "trunc",
+        "power",
+        "sqrt",
+        "exp",
+        "ln",
+        "log",
+        "log10",
+        "mod",
+        "sign",
+        "safe_divide",
+        "div",
+        # strings
+        "concat",
+        "lower",
+        "upper",
+        "trim",
+        "ltrim",
+        "rtrim",
+        "length",
+        "substr",
+        "substring",
+        "replace",
+        "split",
+        "starts_with",
+        "ends_with",
+        "contains",
+        "left",
+        "right",
+        "lpad",
+        "rpad",
+        "format",
+        "regexp_contains",
+        "regexp_extract",
+        "regexp_replace",
+        "string_agg",
+        "array_agg",
+        # dates and times
+        "current_date",
+        "current_timestamp",
+        "date",
+        "datetime",
+        "timestamp",
+        "date_add",
+        "date_sub",
+        "date_diff",
+        "date_trunc",
+        "extract",
+        "format_date",
+        "parse_date",
+        "unix_date",
+        "year",
+        "month",
+        "day",
+        "quarter",
+        "week",
+        "dayofweek",
+        "hour",
+        "minute",
+        "second",
+        "timestamp_diff",
+        "timestamp_trunc",
+        "date_part",
+        # casts and types
+        "cast",
+        "safe_cast",
+        "to_char",
+        "cast_to_type",
+    }
 )
 
 DEFAULT_MAX_ROWS = 200
@@ -77,6 +213,37 @@ def _table_name(node: exp.Table) -> str:
     """`project.dataset.table` -> `dataset.table`, lowercased."""
     parts = [p.name for p in (node.args.get("catalog"), node.args.get("db"), node.this) if p]
     return ".".join(parts[-2:]).lower() if len(parts) > 1 else parts[-1].lower()
+
+
+def _disallowed_functions(tree: exp.Expression) -> set[str]:
+    """
+    Every function called in the tree that is not on the allowlist.
+
+    sqlglot parses a function it recognises into its own typed node -- SUM
+    becomes exp.Sum -- and anything it does not recognise into exp.Anonymous
+    carrying the raw name. Both are checked, because recognising a name is not
+    the same as approving it: a dialect function sqlglot knows perfectly well
+    can still be one this warehouse has no business running.
+
+    `getenv('GEMINI_API_KEY')` is the case that motivated this. It parsed as
+    Anonymous, passed every check this module had, and reached DuckDB -- where
+    it failed only because DuckDB 1.5.5 has no such function. That is luck, not
+    a control, and it is a version away from stopping being true.
+    """
+    found: set[str] = set()
+    for node in tree.find_all(exp.Func):
+        # AND and OR subclass Func in sqlglot but are grammar, not calls. They
+        # carry no arguments a caller chooses and there is nothing to allow or
+        # deny about them; listing them would only make the allowlist read as
+        # though boolean logic were a privilege.
+        if isinstance(node, exp.Connector):
+            continue
+        name = (node.sql_name() if hasattr(node, "sql_name") else type(node).__name__).lower()
+        if isinstance(node, exp.Anonymous):
+            name = str(node.this).lower()
+        if name not in ALLOWED_FUNCTIONS:
+            found.add(name)
+    return found
 
 
 def check(
@@ -114,6 +281,14 @@ def check(
     # every selectable type, require that a SELECT is reachable at all.
     if tree.find(exp.Select) is None:
         raise UnsafeSQL(f"Statement must be a SELECT, parsed {type(tree).__name__}")
+
+    unknown_functions = sorted(_disallowed_functions(tree))
+    if unknown_functions:
+        raise UnsafeSQL(
+            f"Function(s) not on the allowlist: {', '.join(unknown_functions)}. "
+            "This warehouse answers questions with ordinary analytic SQL; anything "
+            "else is refused whether or not it is known to be dangerous."
+        )
 
     # CTE names look exactly like tables in the tree and are not tables. Without
     # this, `with x as (...) select from x` is rejected for referencing a table

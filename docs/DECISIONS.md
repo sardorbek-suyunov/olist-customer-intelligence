@@ -651,3 +651,40 @@ The useful finding is which ceiling actually binds. The 5 GiB per-SESSION budget
 3072 dimensions it would be five. The truncation to 1536 was chosen on arithmetic
 before the run and the measurement confirms it -- but the session budget, not the
 per-query one, is the number to watch when the demo is wired up.
+
+## 17. The seller question is documented, not fixed
+
+**The call.** The agent answers "which sellers have the longest average delivery
+times?" with a cross join and 200 rows of the global average. It stays that way,
+written up in the README with the SQL it produced.
+
+**Why it happens.** `fct_orders` is at order grain with `seller_count`, a count.
+It has no `seller_id`; `dim_sellers` has no order key. The relationship lives in
+`order_items`, which is not a mart. The question is unanswerable from this
+warehouse, the agent was not told that, and `ON o.seller_count > 0` was the only
+predicate it could find.
+
+**Why not add a mart.** A `seller_items` mart answers this question and not the
+next one. The gap is structural -- a dimension with no path to the fact -- and
+there are others like it. Building the one mart that closes the case someone
+already found is how a demo ends up with a suspiciously good hit rate against
+exactly the questions its author tried.
+
+**Why not a prompt rule.** Naming this join in the prompt is tuning against a
+case already seen. Decision 5b iterated the labelling prompt once, on a class of
+error diagnosed across the eval, and said so; adding a rule for one question
+found by hand is not that, and it would move the gold score without moving
+capability. The eval's whole claim is that its number was not chosen after
+seeing which cases it fails.
+
+**What would actually fix it** is a guard that refuses a join whose predicate is
+not a key relationship -- a real feature with a real design and a real false
+positive rate, since `ON 1=1` is legitimate in a deliberate cross join. That is
+a piece of work, not a patch, and pretending otherwise by special-casing this
+query would leave the class of error untouched while making it invisible.
+
+**What it is worth as it stands.** Every control passed: single SELECT, permitted
+tables, allowlisted functions, injected LIMIT, priced before the call, inside the
+timeout. The failure is orthogonal to all of them. That is the most useful thing
+the demo demonstrates about LLM-written SQL, and removing it would remove the
+demonstration. See the README's "A question it answers confidently and wrongly".
