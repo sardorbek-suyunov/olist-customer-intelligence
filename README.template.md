@@ -112,6 +112,17 @@ Orchestrated by two Airflow 3 DAGs (`orchestration/dags/olist_batch.py`), each a
 thin `BashOperator` wrapper over CLI-invokable modules — so swapping Airflow for
 Dagster or cron means rewriting one file and nothing else.
 
+### The model documentation
+
+{{dbt_docs_link}}
+
+It is generated in the **same CI job that just built and tested the project**,
+not by a workflow that rebuilds independently. A second build would be a second
+answer: the published catalogue would describe a run nothing else verified, and
+the two could disagree with nothing to notice. The column types and row counts in
+it come from querying the warehouse, so they are measured rather than declared —
+the same rule as every other number here.
+
 ### One codebase, two warehouses
 
 | Target | Used for | Why |

@@ -159,6 +159,39 @@ jobs:
           git diff --stat --exit-code dashboard/data/ \
             || echo "::warning::dashboard snapshot differs; run 'make snapshot' and commit"
 
+      # The docs site is generated from the SAME build that just ran its tests,
+      # in the same job, rather than by a workflow that rebuilds independently.
+      # A second build is a second answer: the published catalogue would describe
+      # a run nothing else in this file verified, and the two could disagree
+      # without anything noticing. It also reuses the cached dataset instead of
+      # downloading 123 MB twice.
+      #
+      # --target duckdb on purpose: the catalogue's column types and row counts
+      # come from querying the warehouse, and this one is built from the CSVs on
+      # free CI minutes with no credentials.
+      - name: Generate dbt docs
+        working-directory: transform
+        env:
+          DBT_PROFILES_DIR: .
+        run: dbt docs generate --target duckdb
+
+      # dbt's docs site is three files that must sit together. Copying exactly
+      # these rather than publishing target/ wholesale: that directory also holds
+      # run_results.json and the compiled SQL, and none of it belongs on a public
+      # URL just because it happened to be in the build directory.
+      - name: Assemble the docs site
+        run: |
+          mkdir -p site
+          cp transform/target/index.html site/
+          cp transform/target/manifest.json site/
+          cp transform/target/catalog.json site/
+          test -s site/index.html && test -s site/catalog.json
+
+      - name: Upload the docs site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
       - name: Upload dbt artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -200,3 +233,29 @@ jobs:
         run: |
           airflow db migrate
           python -m pytest orchestration/tests -q
+
+  # Publish the dbt docs. Separate job because Pages deployment needs elevated
+  # permissions and its own concurrency group, and because it must not run on a
+  # pull request: a PR deploying to the live URL would publish an unreviewed
+  # catalogue over the one on main.
+  #
+  # It deploys the artifact the build job produced rather than regenerating it,
+  # so the published site is the same build whose tests passed above.
+  pages:
+    name: Publish dbt docs
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

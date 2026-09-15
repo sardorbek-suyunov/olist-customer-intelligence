@@ -123,6 +123,11 @@ screenshot: ## Regenerate the README's NL->SQL screenshot (needs `make dashboard
 diagram: ## Render docs/img/architecture.svg from docs/architecture.mmd
 	python scripts/render_diagram.py
 
+.PHONY: docs
+docs: ## Generate the dbt docs site and serve it at http://localhost:8080
+	cd transform && DBT_PROFILES_DIR=. dbt docs generate --target duckdb
+	cd transform && DBT_PROFILES_DIR=. dbt docs serve --port 8080
+
 .PHONY: gemini-check
 gemini-check: ## Resolve the Gemini model against your key, e.g. make gemini-check MODEL=<id>
 	python scripts/check_gemini.py $(if $(MODEL),--model $(MODEL),)
