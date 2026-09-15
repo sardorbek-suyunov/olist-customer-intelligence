@@ -1,68 +1,94 @@
 # ---------------------------------------------------------------------------
 # Consumer quota overrides.
 #
-# THE FINDING THIS FILE EXISTS TO RECORD
+# THE EPISODE THIS FILE RECORDS
 #
-# The intent was a daily cap on BigQuery query bytes -- a platform-enforced
-# ceiling, which this project prefers over an application-enforced one for the
-# same reason it prefers `maximum_bytes_billed` over a prompt asking the model
-# to be careful: one is a control and the other is a hope.
+# The intent was a daily ceiling on BigQuery query bytes -- platform-enforced
+# rather than application-enforced, for the same reason this project prefers
+# `maximum_bytes_billed` to asking a model nicely: one is a control and the
+# other is a hope. The README claimed a 10 GiB/day ceiling.
 #
-# That cap is NOT SET. `bigquery.googleapis.com/quota/query/usage` reports
-# `consumerOverride: null` on both its buckets -- per-project and per-user.
+# Enumerating the project to write this directory found that
+# `bigquery.googleapis.com/quota/query/usage` had `consumerOverride: null`. The
+# ceiling did not exist. What existed were two overrides, both at exactly
+# 10,000,000,000, and neither constrained query scanning:
 #
-# What IS set is the two overrides below, both at 10,000,000,000 (10 GB/day),
-# and neither of them constrains query scanning:
+#   quota/extract/bytes                                     bytes EXTRACT jobs write
+#   quota/query/alloydb_federated_query_cross_region_bytes  AlloyDB federated queries
 #
-#   quota/extract/bytes
-#     Bytes that EXTRACT jobs may write per day. Default 50 TiB, now 10 GB.
-#     This project runs no extract jobs, so the cap has never been reached and
-#     its presence has never been felt.
+# Both metric names contain "bytes" and both sit near the query metrics in a
+# filtered console list. The most likely explanation is two adjacent rows.
 #
-#   quota/query/alloydb_federated_query_cross_region_bytes
-#     Cross-region bytes for federated queries against AlloyDB. Default 1 TiB,
-#     now 10 GB. This project has no AlloyDB instance and no federated queries.
-#     The override is completely inert.
+# THE UNIT TRAP, which nearly produced a second silent failure
 #
-# Both metric names contain "bytes" and both sort near the query metrics in the
-# console's quota list. The most likely explanation is a filtered list and two
-# adjacent rows.
+# This file's first draft said "10 GiB/day = 10737418240" and would have set
+# that. It is wrong, and wrong in the dangerous direction.
 #
-# WHY THEY ARE IMPORTED RATHER THAN CORRECTED OR DELETED
+# The Service Usage API expresses this metric in MEBIBYTES, not bytes. The
+# documented default is 200 TiB/day and the API reports it as 209715200 -- and
+# 209715200 MiB is exactly 200 TiB, which is what pins the unit down. Setting
+# 10737418240 would therefore have set ~10 PiB/day: no meaningful limit at all,
+# while reading in the config like a tight one, and reporting success.
 #
-# Because they exist. This directory's claim is that it describes the project as
-# it is, proven by a plan with no changes -- and a configuration that omits two
-# live resources because they are embarrassing is exactly as inaccurate as one
-# that invents resources that are absent. Correcting them is a change to
-# infrastructure and a separate decision, not a side effect of writing it down.
+#   10 GiB/day  =  10 * 1024 MiB  =  10240
 #
-# WHAT THE PROJECT ACTUALLY RELIES ON IN THE MEANTIME
-#
-# Only application-level ceilings: `maximum_bytes_billed` set per job in
-# transform/profiles.yml (2 GiB) and in analytics/bq_safety.py (1 GiB per query,
-# 5 GiB per session). Those are real and they are tested -- BigQuery was observed
-# rejecting a query with `bytesBilledLimitExceeded`. But every one of them is set
-# by code in this repository, so all of them share a failure mode that a
-# project-level quota would not: they protect against a query being too large,
-# not against this repository being wrong about what it sets.
-#
-# To actually set the intended cap (10 GiB/day = 10737418240):
-#
-#   gcloud alpha services quota update \
-#     --service=bigquery.googleapis.com \
-#     --consumer=projects/<project-id> \
-#     --metric=bigquery.googleapis.com/quota/query/usage \
-#     --unit='1/d/{project}' \
-#     --value=10737418240
-#
-# It is left undone here because changing a live ceiling is the owner's call.
+# The value below is 10240 and was verified AFTER applying: the API now reports
+# effectiveLimit 10240 on the per-project bucket. The console displays this
+# metric in TiB, a third unit for the same number, which is worth knowing before
+# anyone edits it by eye.
 # ---------------------------------------------------------------------------
 
-locals {
-  # Both overrides carry the same value, which is itself evidence they were set
-  # in one sitting from one intent.
-  misapplied_override_bytes = "10000000000"
+# ---------------------------------------------------------- the intended one
+#
+# This is the ceiling the README describes. It now exists.
+#
+# It is a genuinely different kind of control from the ones in this
+# repository's Python. `maximum_bytes_billed` in transform/profiles.yml and in
+# analytics/bq_safety.py are set BY this codebase, so they share a failure mode:
+# they protect against a query being too large, not against this codebase being
+# wrong about what it sets. A project quota holds even when the code is wrong,
+# which is the property the rest of the README is about.
+
+resource "google_service_usage_consumer_quota_override" "query_usage_per_day" {
+  provider = google-beta
+
+  project        = data.google_project.this.number
+  service        = "bigquery.googleapis.com"
+  metric         = urlencode("bigquery.googleapis.com/quota/query/usage")
+  limit          = urlencode("/d/project")
+  override_value = "10240" # MiB. 10 GiB/day. See the unit trap above.
+
+  # false to match what the API returns, so `plan` stays empty. `force` is a
+  # Terraform-side flag that the API does not store and import cannot recover,
+  # so declaring true here produces a permanent one-line diff and destroys the
+  # zero-change proof this directory rests on. Creating this override from
+  # scratch DOES need force = true, because the value is far below the default
+  # and the API asks for confirmation -- set it, apply, set it back.
+  force = false
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
+
+# --------------------------------------------------------- the kept accident
+#
+# Set by mistake, and KEPT DELIBERATELY -- which is a different thing from
+# tolerated. The reasoning, so that it survives being written down:
+#
+#   An extract job writes table data out to Cloud Storage. Nothing in this
+#   project runs one, so the cap has never been felt. But an accidental or
+#   hostile full-table export is a real egress path and this is the only
+#   ceiling on it. The whole dataset is ~120 MB, so 10 GB is roughly 85x
+#   headroom: it cannot bite a legitimate use, and it caps a bad one.
+#
+# Keeping an accident because it turned out useful is a bad habit. Converting it
+# into a decision with a stated reason is not, and that distinction is decision 2
+# in docs/DECISIONS.md applied to infrastructure rather than to a taxonomy.
+#
+# The AlloyDB override was DELETED rather than kept: it constrained federated
+# queries against a product this project does not use and never will, so there
+# was no reading under which it was a control.
 
 resource "google_service_usage_consumer_quota_override" "extract_bytes" {
   provider = google-beta
@@ -71,27 +97,7 @@ resource "google_service_usage_consumer_quota_override" "extract_bytes" {
   service        = "bigquery.googleapis.com"
   metric         = urlencode("bigquery.googleapis.com/quota/extract/bytes")
   limit          = urlencode("/d/project")
-  override_value = local.misapplied_override_bytes
-
-  # Without this, removing the resource from configuration would DELETE the
-  # override rather than just stop managing it. That is the right default in
-  # general and the wrong one here: whether these overrides should exist is an
-  # open question, and `terraform destroy` is not how it should be answered.
-  force = false
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "google_service_usage_consumer_quota_override" "alloydb_federated_cross_region_bytes" {
-  provider = google-beta
-
-  project        = data.google_project.this.number
-  service        = "bigquery.googleapis.com"
-  metric         = urlencode("bigquery.googleapis.com/quota/query/alloydb_federated_query_cross_region_bytes")
-  limit          = urlencode("/d/project")
-  override_value = local.misapplied_override_bytes
+  override_value = "10000000000" # bytes. 10 GB/day of extract egress.
 
   force = false
 

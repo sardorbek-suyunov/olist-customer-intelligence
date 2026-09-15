@@ -25,3 +25,13 @@ variable "bq_location" {
   type        = string
   default     = "US"
 }
+
+variable "billing_account" {
+  description = "Billing account id the $5 budget alert lives on. Not a secret; it is an identifier, and it is in terraform.tfvars for the same reason project_id is."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}$", var.billing_account))
+    error_message = "billing_account looks like 01F32F-9AD3ED-6A3F51."
+  }
+}

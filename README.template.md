@@ -824,10 +824,20 @@ all found by executing something. This one could not be — there was nothing to
 execute. It took enumerating the platform and comparing it to the prose, which
 is exactly what the Terraform work forced and nothing else would have.
 
-What actually limits the BigQuery path today is `maximum_bytes_billed`, and
-`gcloud` refusing to do what an unauthenticated caller asks. The demo path has
-no GCP identity at all — see the DuckDB hardening above, which is a real
-boundary and was tested by attacking it.
+**The dead code went with the claim.** The dashboard had a sidebar toggle
+offering "BigQuery (live)". In production it could never run — it needs
+`GCP_PROJECT_ID`, the deployment sets only `GEMINI_API_KEY`, and a guard caught
+that and fell back to the snapshot. So it was a control any visitor could click
+that did nothing except print a red error into the sidebar. It is removed, which
+buys a stronger sentence than fixing it would have:
+
+> **The demo runs entirely on committed Parquet. No warehouse credential exists
+> in this deployment, and no code path could use one.**
+
+The record and the dead code were separable, and only one of them was worth
+keeping. What limits the BigQuery path — which now only a developer on their own
+machine can reach — is `maximum_bytes_billed`, plus the project-level daily
+quota that this episode caused to actually get set. See below.
 
 ### The deployed demo does not have that boundary
 
@@ -1145,27 +1155,61 @@ whole of what is available, and it is stated rather than implied. `olist_raw` an
 `olist_marts` hold enrichment output that cost ${{enrichment_corpus_cost_usd_v1}}
 and {{enrichment_corpus_minutes_v1}} minutes and cannot be regenerated for free.
 
-### The quota override is real, and it is on the wrong metric
+### The quota that was claimed for weeks and did not exist
 
-The intent was a daily ceiling on BigQuery **query** bytes — platform-enforced
-rather than application-enforced, for the same reason this project prefers
-`maximum_bytes_billed` to asking a model nicely.
+The README asserted a 10 GiB/day BigQuery ceiling — platform-enforced rather than
+application-enforced, for the same reason this project prefers
+`maximum_bytes_billed` to asking a model nicely. Enumerating found
+`bigquery.googleapis.com/quota/query/usage` reporting `consumerOverride: null`.
 
-`bigquery.googleapis.com/quota/query/usage` reports `consumerOverride: null`.
-**The cap is not set.** Two overrides do exist, both at exactly 10 GB/day:
+**It did not exist.** What did were two overrides, both at exactly 10,000,000,000,
+neither constraining query scanning:
 
-| metric | default | override | what it constrains |
-|---|---|---|---|
-| `quota/extract/bytes` | 50 TiB | 10 GB | bytes **extract jobs** write. This project runs none. |
-| `quota/query/alloydb_federated_query_cross_region_bytes` | 1 TiB | 10 GB | federated queries against **AlloyDB**. There is no AlloyDB instance. |
+| metric | constrains | reality |
+|---|---|---|
+| `quota/extract/bytes` | bytes extract jobs write | this project runs none |
+| `…alloydb_federated_query_cross_region_bytes` | AlloyDB federated queries | there is no AlloyDB |
 
-Both names contain "bytes" and both sit near the query metrics in a filtered
-console list. Both are inert.
+Both names contain "bytes" and sit near the query metrics in a filtered console
+list. It is now set correctly, and the claim is true:
 
-They are imported and codified anyway, because they exist — a config that omits
-live resources because they are embarrassing is exactly as inaccurate as one
-that invents resources that are absent. Correcting them is a change to
-infrastructure and a separate decision; the one-liner is in `quotas.tf`.
+```
+$ gcloud alpha services quota list --service=bigquery.googleapis.com …
+  quota/query/usage   default=209715200 MiB   effective=10240 MiB  (= 10 GiB/day)
+```
+
+**The unit nearly caused a second silent failure.** The first draft of
+`quotas.tf` said `10 GiB/day = 10737418240` — the figure in *bytes*. The Service
+Usage API expresses this metric in **mebibytes**: the documented default is
+200 TiB and the API reports `209715200`, and 209715200 MiB is exactly 200 TiB,
+which is what pins it down. Applying the bytes figure would have set ~10 PiB/day
+— **no limit at all, reading in the config like a tight one, and reporting
+success.** The console shows the same number in TiB, a third unit.
+
+The AlloyDB override was deleted: it constrained a product this project does not
+use, so there is no reading under which it was a control. `quota/extract/bytes`
+was **kept, and thereby converted from an accident into a decision** — an extract
+job is the one real egress path out of the warehouse, nothing here runs one, and
+10 GB against a ~120 MB dataset cannot bite a legitimate use while capping a bad
+one. Keeping an accident because it turned out useful is a bad habit; writing
+down why you are keeping it is not.
+
+### The budget alert exists, and now that is checked rather than believed
+
+It could not be verified before, because `billingbudgets.googleapis.com` was not
+enabled and listing budgets without it fails with a permission error that reads
+like a missing grant. So it sat in the same category as the IAM row: an asserted
+control nothing had confirmed.
+
+It was exactly as described — $5 monthly, thresholds at 50/90/100/150%. **Two of
+the three asserted controls in this project turned out to be false; this was the
+one that was true.** That ratio is the argument for checking, not against it.
+
+One correction: its filter carries no `projects` entry, so it covers the whole
+**billing account**, not this project. Identical numbers today, different numbers
+the moment a second project appears under it. And a budget notifies — it does not
+cap. Nothing about crossing $5 stops a query, which is exactly why the quota
+above matters.
 
 ### CI validates, it does not plan
 

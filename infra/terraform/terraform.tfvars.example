@@ -13,3 +13,6 @@ project_id = "your-gcp-project-id"
 # Optional -- both have working defaults.
 # region      = "us-central1"
 # bq_location = "US"
+
+# The billing account the budget alert is attached to.
+billing_account = "XXXXXX-XXXXXX-XXXXXX"

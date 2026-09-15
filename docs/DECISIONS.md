@@ -705,14 +705,35 @@ here proved the point -- it gave each dataset a description, and the first plan
 reported four in-place updates, because the live datasets have none. Config that
 would have CHANGED the project on first apply while claiming to describe it.
 
-**Why the misapplied quota overrides are kept.** The intended control was a daily
-ceiling on query bytes. It does not exist. Two overrides at 10 GB/day do, on
-`quota/extract/bytes` and on AlloyDB cross-region federated query bytes -- one
-constrains a job type this project never runs, the other a product it does not
-use. Omitting them would make the config a description of the project as someone
-wishes it were. Correcting them changes a live ceiling, which is a decision, not
-a side effect of writing things down. So they are imported, and the correction is
-a documented one-liner.
+**The quota was corrected, and the unit nearly caused a second failure.** The
+intended control -- a daily ceiling on query bytes -- did not exist; two overrides
+at 10 GB/day did, on `quota/extract/bytes` and on AlloyDB cross-region federated
+query bytes. The real ceiling is now set at 10 GiB/day and verified.
+
+The value is `10240`, not `10737418240`. The Service Usage API expresses this
+metric in MEBIBYTES: the documented default is 200 TiB and the API reports
+209715200, and 209715200 MiB is exactly 200 TiB. The first draft used the bytes
+figure, which would have set ~10 PiB/day -- no limit at all, reading in the
+config like a tight one, and reporting success. The console shows the same
+number in TiB, a third unit for one value. Anything that looks like a units
+question in this project deserves the arithmetic written out.
+
+The AlloyDB override was DELETED: it constrained a product this project does not
+use, so there was no reading under which it was a control. `quota/extract/bytes`
+was KEPT, and thereby converted from an accident into a decision -- an extract
+job is the one real egress path out of the warehouse, nothing here runs one, and
+10 GB against a ~120 MB dataset cannot bite a legitimate use while capping a bad
+one. Keeping an accident because it turned out useful is a bad habit; recording
+why you are keeping it is what makes it a decision instead.
+
+**The budget was the one asserted control that was true.** It could not be
+verified before, because `billingbudgets.googleapis.com` was not enabled and
+listing budgets without it fails with a permission error that reads like a
+missing grant. Enabled and imported: $5 monthly, thresholds at 50/90/100/150%,
+exactly as claimed. Two of three asserted controls turned out false and this one
+did not, which is the argument for checking rather than against it. Its filter
+carries no `projects` entry, so it covers the whole billing account -- the same
+number today, a different number the moment a second project exists.
 
 **Why the IAM row was deleted rather than implemented.** The README described a
 service account holding `dataViewer` on the marts dataset as "the control that
@@ -723,6 +744,14 @@ account now would make the sentence true, and would also mean the repository
 spent eight weeks citing a control it did not have and then quietly built it. The
 sentence is struck through instead, with what it actually claimed and why it was
 wrong, because that is the more useful artifact.
+
+**And the dead code went with it.** The dashboard's "BigQuery (live)" toggle
+could never run in production -- it needs `GCP_PROJECT_ID`, the deployment sets
+only `GEMINI_API_KEY`, and a guard fell back to the snapshot. A control any
+visitor could click that did nothing but print a red error. Removing it buys a
+stronger claim than fixing it would: the demo runs entirely on committed Parquet
+and no code path could use a warehouse credential. The record and the dead code
+were separable; only the record was worth keeping.
 
 **Why CI does not plan.** A plan needs credentials. This pipeline has none by
 design, and a long-lived service-account key in repository secrets would trade

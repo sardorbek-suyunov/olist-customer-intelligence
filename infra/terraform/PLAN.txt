@@ -7,21 +7,24 @@
 # checked. This file is the check. Every resource below was imported from the
 # live project first; the plan is what proves the config matches it.
 #
-# Produced 2026-09-15T15:26Z against project olist-customer-intelligence
+# 11 resources: 4 BigQuery datasets, 5 enabled APIs, 2 quota overrides, 1 budget.
+#
+# Produced 2026-09-15T16:20Z against project olist-customer-intelligence
 # with terraform v1.13.1 and google provider 6.50.0.
 
+google_billing_budget.monthly_alert: Refreshing state... [id=billingAccounts/01F32F-9AD3ED-6A3F51/budgets/607b03e1-67d0-40d8-9300-0b327c9d0ad8]
 google_project_service.required["bigquery.googleapis.com"]: Refreshing state... [id=olist-customer-intelligence/bigquery.googleapis.com]
-data.google_project.this: Reading...
-google_project_service.required["generativelanguage.googleapis.com"]: Refreshing state... [id=olist-customer-intelligence/generativelanguage.googleapis.com]
 google_project_service.required["bigquerystorage.googleapis.com"]: Refreshing state... [id=olist-customer-intelligence/bigquerystorage.googleapis.com]
+data.google_project.this: Reading...
 google_project_service.required["serviceusage.googleapis.com"]: Refreshing state... [id=olist-customer-intelligence/serviceusage.googleapis.com]
-google_bigquery_dataset.this["olist"]: Refreshing state... [id=projects/olist-customer-intelligence/datasets/olist]
-google_bigquery_dataset.this["olist_marts"]: Refreshing state... [id=projects/olist-customer-intelligence/datasets/olist_marts]
+google_project_service.required["generativelanguage.googleapis.com"]: Refreshing state... [id=olist-customer-intelligence/generativelanguage.googleapis.com]
 google_bigquery_dataset.this["olist_staging"]: Refreshing state... [id=projects/olist-customer-intelligence/datasets/olist_staging]
 google_bigquery_dataset.this["olist_raw"]: Refreshing state... [id=projects/olist-customer-intelligence/datasets/olist_raw]
-data.google_project.this: Read complete after 2s [id=projects/olist-customer-intelligence]
+google_bigquery_dataset.this["olist_marts"]: Refreshing state... [id=projects/olist-customer-intelligence/datasets/olist_marts]
+google_bigquery_dataset.this["olist"]: Refreshing state... [id=projects/olist-customer-intelligence/datasets/olist]
+data.google_project.this: Read complete after 3s [id=projects/olist-customer-intelligence]
 google_service_usage_consumer_quota_override.extract_bytes: Refreshing state... [id=projects/225453169477/services/bigquery.googleapis.com/consumerQuotaMetrics/bigquery.googleapis.com%2Fquota%2Fextract%2Fbytes/limits/%2Fd%2Fproject/consumerOverrides/Cg1RdW90YU92ZXJyaWRl]
-google_service_usage_consumer_quota_override.alloydb_federated_cross_region_bytes: Refreshing state... [id=projects/225453169477/services/bigquery.googleapis.com/consumerQuotaMetrics/bigquery.googleapis.com%2Fquota%2Fquery%2Falloydb_federated_query_cross_region_bytes/limits/%2Fd%2Fproject/consumerOverrides/Cg1RdW90YU92ZXJyaWRl]
+google_service_usage_consumer_quota_override.query_usage_per_day: Refreshing state... [id=projects/225453169477/services/bigquery.googleapis.com/consumerQuotaMetrics/bigquery.googleapis.com%2Fquota%2Fquery%2Fusage/limits/%2Fd%2Fproject/consumerOverrides/Cg1RdW90YU92ZXJyaWRl]
 
 No changes. Your infrastructure matches the configuration.
 
