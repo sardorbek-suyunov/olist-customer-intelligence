@@ -42,3 +42,12 @@ exclude:
     paths:
       - enrichment/data/.*\.parquet
       - dashboard/data/.*\.parquet
+
+  # Rendered from docs/architecture.mmd by `make diagram`. Flagged MEDIUM for
+  # High Entropy: mermaid emits minified CSS and long path coordinate strings,
+  # which look like entropy and are geometry. The SOURCE is not excluded, so a
+  # credential could not reach this file without appearing in a .mmd diff first
+  # -- and analytics/tests/test_architecture_diagram.py asserts the two agree.
+  - message: Rendered diagram - minified CSS and SVG path data, no credentials
+    paths:
+      - docs/img/architecture\.svg

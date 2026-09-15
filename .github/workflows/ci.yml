@@ -49,6 +49,20 @@ jobs:
         run: |
           ruff check analytics dashboard enrichment ingestion orchestration scripts
           ruff format --check analytics dashboard enrichment ingestion orchestration scripts
+      # BEFORE the tests, not after. `dbt parse` needs no data and no warehouse
+      # -- it writes target/manifest.json from the project files alone -- and
+      # the architecture diagram tests read that manifest. Running it afterwards
+      # left them with no manifest in the fast job, where they used to skip, and
+      # a skip is a pass. Ordering is the fix; making them fail loudly without a
+      # manifest only surfaced the problem.
+      - name: dbt parse
+        working-directory: transform
+        env:
+          DBT_PROFILES_DIR: .
+        run: |
+          dbt deps
+          dbt parse
+
       - name: Unit tests
         # enrichment/tests run here on purpose: the whole pipeline except the
         # HTTP call is exercised offline, so CI needs no Gemini key.
@@ -59,14 +73,6 @@ jobs:
       # -- both of which had already happened and gone unnoticed.
       - name: Makefile recipes expand
         run: make -n help lint test profile spend dashboard-deploy-check secrets embed embed-reconcile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run diagram screenshot
-
-      - name: dbt parse
-        working-directory: transform
-        env:
-          DBT_PROFILES_DIR: .
-        run: |
-          dbt deps
-          dbt parse
 
   # The real gate: every model built and every test run against DuckDB, which
   # reads the CSVs in place. No warehouse, no cloud credentials, no spend -- the
@@ -101,6 +107,14 @@ jobs:
         run: |
           pip install kaggle
           python scripts/download_data.py
+
+      # The marts read a dbt source backed by the committed enrichment Parquet,
+      # added in 7d06ca2. CI never restored it, so every build since has failed
+      # six tests on "Table with name olist_raw.review_enrichment does not
+      # exist". Free and keyless -- it is a local Parquet load, which is the
+      # whole point of committing the snapshot.
+      - name: Restore the enrichment snapshot
+        run: python scripts/export_enrichment.py --duckdb-path transform/olist.duckdb --restore
 
       - name: dbt build
         working-directory: transform

@@ -64,9 +64,18 @@ def runner():
 
 @pytest.fixture
 def secret(tmp_path):
-    """A readable file standing in for .env, so a refusal cannot be a format error."""
+    """
+    A readable file standing in for .env, so a refusal cannot be a format error.
+
+    The value is assembled rather than written as a literal. A credential-shaped
+    string in a committed file is exactly what the secret scanner exists to find,
+    and the choice is between teaching it to ignore this path or not putting one
+    here. Excluding a path to quiet a test fixture is how a scanner becomes
+    something people route around -- .trufflehog3.yml makes that argument itself.
+    """
     path = tmp_path / "dotenv.csv"
-    path.write_text("key,value\nGEMINI_API_KEY,sk-SUPER-SECRET-VALUE\n", encoding="utf-8")
+    fake = "-".join(["sk", "not", "a", "real", "key", "0" * 8])
+    path.write_text(f"key,value\nEXAMPLE_API_KEY,{fake}\n", encoding="utf-8")
     return path
 
 
