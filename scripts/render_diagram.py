@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -50,7 +51,17 @@ PAGE = """<!doctype html>
     startOnLoad: false,
     theme: "dark",
     securityLevel: "loose",
-    flowchart: {{ htmlLabels: true, curve: "basis", nodeSpacing: 45, rankSpacing: 55 }},
+    // Both places. mermaid 11 reads the flowchart-scoped one for node
+    // labels and the top-level one for subgraph titles and edge labels;
+    // setting only the first still emits foreignObject for the rest.
+    htmlLabels: false,
+    // wrappingWidth wide enough that a dbt model name stays on one line.
+    // The default broke int_customer_address_versions across two lines
+    // mid-word, which makes a real identifier look like two fragments.
+    flowchart: {{
+      htmlLabels: false, curve: "basis",
+      nodeSpacing: 45, rankSpacing: 55, wrappingWidth: 320,
+    }},
   }});
   const src = {source};
   try {{
@@ -113,9 +124,39 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
+        # An SVG that renders inside the page it was built in is not the same
+        # thing as an SVG that renders as a FILE, and the difference is silent:
+        # the first version of this looked perfect in the browser and appeared in
+        # the README as a broken-image icon.
+        #
+        # foreignObject is why. mermaid's htmlLabels put HTML div elements inside
+        # the SVG, which a browser renders in-document, does NOT render when the
+        # file is the src of an <img>, and which GitHub strips from uploaded SVG
+        # entirely -- so the diagram would have arrived with no labels at all.
+        # htmlLabels is off; this refuses to write the file if that ever changes.
+        if "foreignObject" in svg:
+            print(
+                "refusing to write: the SVG contains <foreignObject>, so its labels\n"
+                "will not render when the file is used as an image, and GitHub will\n"
+                "strip them. Set flowchart.htmlLabels to false.",
+                file=sys.stderr,
+            )
+            return 1
+
+        # width="100%" plus an inline max-width is how mermaid fits a container.
+        # As a standalone file that leaves no intrinsic size, so give it the
+        # viewBox's own dimensions and let the README's CSS scale it down.
+        match = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
+        if not match:
+            print("rendered SVG has no viewBox to size it from", file=sys.stderr)
+            return 1
+        width, height = (round(float(v)) for v in match.groups())
+        svg = svg.replace('width="100%"', f'width="{width}" height="{height}"', 1)
+        svg = re.sub(r'style="max-width:[^"]*"', "", svg, count=1)
+
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(svg, encoding="utf-8", newline="")
-        print(f"wrote {args.out}  ({len(svg) // 1024} KB of SVG)")
+        print(f"wrote {args.out}  ({len(svg) // 1024} KB of SVG, {width}x{height})")
         return 0
     finally:
         driver.quit()

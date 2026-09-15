@@ -21,50 +21,50 @@
 
 flowchart TB
 
-  CSV["<b>archive/*.csv</b><br/>Kaggle extract · 9 files<br/>1,550,851 rows"]
+  CSV["archive/*.csv<br/>Kaggle extract · 9 files<br/>1,550,851 rows"]
 
-  subgraph AF["<b>Airflow 3</b> · olist_backfill_monthly @monthly · olist_incremental_daily @daily"]
+  subgraph AF["Airflow 3 · monthly backfill + daily incremental"]
     direction LR
-    REPLAY["<b>replay_slice</b><br/>ingestion/replay.py"]
-    SLICES[("<b>data/slices/</b><br/>56 windows · Parquet<br/><i>not committed</i>")]
-    LOAD["<b>load_to_warehouse</b><br/>ingestion/load.py"]
-    VERIFY["<b>verify_slice_complete</b><br/><i>COUNT(*) from the table,<br/>not the job's output_rows</i>"]
-    DBTRUN["<b>dbt_build</b>"]
+    REPLAY["replay_slice<br/>ingestion/replay.py"]
+    SLICES[("data/slices/<br/>56 windows · Parquet<br/>not committed")]
+    LOAD["load_to_warehouse<br/>ingestion/load.py"]
+    VERIFY["verify_slice_complete<br/>COUNT(*) from the table,<br/>not the job's output_rows"]
+    DBTRUN["dbt_build"]
 
     REPLAY --> SLICES --> LOAD --> VERIFY --> DBTRUN
   end
 
-  subgraph WH["<b>Warehouse</b> · one dbt codebase, two adapters, no forked models"]
+  subgraph WH["Warehouse · one dbt codebase, two adapters"]
     direction LR
-    RAW[("<b>raw</b> · 11 sources<br/>olist_raw")]
-    STG["<b>staging</b> · 9 views<br/>stg_customers · stg_orders<br/>stg_order_items · stg_order_payments<br/>stg_order_reviews · stg_products<br/>stg_sellers · stg_geolocation<br/>stg_review_enrichment"]
-    INT["<b>intermediate</b> · 3 ephemeral<br/>int_customer_address_versions<br/>int_customer_rfm<br/>int_order_review_aspects"]
-    MARTS["<b>marts</b> · 5 models<br/>dim_customers <i>SCD2</i><br/>dim_products · dim_sellers<br/>fct_orders <i>incremental, as-of join</i><br/>fct_segment_aspect <i>RFM × aspect</i>"]
+    RAW[("raw · 11 sources<br/>olist_raw")]
+    STG["staging · 9 views<br/>stg_customers · stg_orders<br/>stg_order_items · stg_order_payments<br/>stg_order_reviews · stg_products<br/>stg_sellers · stg_geolocation<br/>stg_review_enrichment"]
+    INT["intermediate · 3 ephemeral<br/>int_customer_address_versions<br/>int_customer_rfm<br/>int_order_review_aspects"]
+    MARTS["marts · 5 models<br/>dim_customers SCD2<br/>dim_products · dim_sellers<br/>fct_orders incremental, as-of join<br/>fct_segment_aspect RFM × aspect"]
 
     RAW --> STG --> INT --> MARTS
   end
 
-  subgraph ENR["<b>Gemini enrichment</b> · offline, run once, committed"]
+  subgraph ENR["Gemini enrichment · offline, committed"]
     direction LR
-    LABEL["<b>enrich.py</b><br/>flash-lite · prompt v1<br/>35,616 texts · 16 aspects"]
-    LABELS[("<b>enrichment/data/*.parquet</b><br/><i>committed — re-run costs $0</i>")]
-    EMBED["<b>embed.py</b><br/>gemini-embedding-2 · 1536-d"]
-    VEC[("<b>embeddings</b> · 35,616<br/>VECTOR_SEARCH, brute force<br/>42.5% of the query ceiling")]
+    LABEL["enrich.py<br/>flash-lite · prompt v1<br/>35,616 texts · 16 aspects"]
+    LABELS[("enrichment/data/*.parquet<br/>committed — re-run costs $0")]
+    EMBED["embed.py<br/>gemini-embedding-2 · 1536-d"]
+    VEC[("embeddings · 35,616<br/>VECTOR_SEARCH, brute force<br/>42.5% of the query ceiling")]
 
     LABEL --> LABELS --> EMBED --> VEC
   end
 
-  subgraph SERVE["<b>Serving</b>"]
+  subgraph SERVE["Serving"]
     direction LR
-    SNAP["<b>export_snapshot.py</b>"]
-    PARQ[("<b>dashboard/data/*.parquet</b><br/><i>committed, ~15 MB</i>")]
-    APP["<b>Streamlit</b><br/>dashboard/app.py"]
-    AGENT["<b>NL→SQL agent</b><br/>analytics/nl2sql.py<br/>prompt v2 · 23/25"]
-    BUDGET["<b>gemini_budget</b><br/><i>priced before the call</i>"]
-    GUARD["<b>sql_guard</b><br/>sqlglot · single SELECT<br/><b>injects</b> the LIMIT"]
-    SAFE["<b>bq_safety</b><br/>dry run · both ceilings<br/>maximum_bytes_billed"]
-    TRANS["<b>snapshot_runner</b><br/><i>transpiles BigQuery SQL<br/>→ DuckDB, on the AST</i>"]
-    IAM["<b>IAM</b> · dataViewer on marts<br/><i>what actually stops a DELETE</i>"]
+    SNAP["export_snapshot.py"]
+    PARQ[("dashboard/data/*.parquet<br/>committed, ~15 MB")]
+    APP["Streamlit<br/>dashboard/app.py"]
+    AGENT["NL→SQL agent<br/>analytics/nl2sql.py<br/>prompt v2 · 23/25"]
+    BUDGET["gemini_budget<br/>priced before the call"]
+    GUARD["sql_guard<br/>sqlglot · single SELECT<br/>injects the LIMIT"]
+    SAFE["bq_safety<br/>dry run · both ceilings<br/>maximum_bytes_billed"]
+    TRANS["snapshot_runner<br/>transpiles BigQuery SQL<br/>→ DuckDB, on the AST"]
+    IAM["IAM · dataViewer on marts<br/>what actually stops a DELETE"]
 
     APP --> AGENT --> BUDGET --> GUARD
     GUARD --> SAFE --> IAM
@@ -90,11 +90,11 @@ flowchart TB
   class PARQ,TRANS duck
   class CSV,REPLAY,SLICES,LOAD,VERIFY,DBTRUN,LABEL,LABELS,EMBED,SNAP,APP,AGENT,GUARD,BUDGET neutral
 
-  subgraph KEY["<b>Which engine runs what</b>"]
+  subgraph KEY["Which engine runs what"]
     direction LR
-    K1["<b>Both engines</b><br/>identical dbt models"]
-    K2["<b>BigQuery only</b><br/>bytes, vectors, IAM"]
-    K3["<b>DuckDB only</b><br/>the public demo"]
+    K1["Both engines<br/>identical dbt models"]
+    K2["BigQuery only<br/>bytes, vectors, IAM"]
+    K3["DuckDB only<br/>the public demo"]
   end
 
   class K1 both
