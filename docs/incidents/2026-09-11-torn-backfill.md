@@ -3,7 +3,7 @@
 **Date:** 2026-09-11 (diagnosed 2026-09-13)
 **Impact:** 3 orders never loaded; one slice left half-loaded. No incorrect data
 served — the marts had not been built yet.
-**Status:** Resolved. Structural fix in `95d2277`.
+**Status:** Resolved. Structural fix in `b9e7274`.
 
 All times UTC.
 
@@ -108,7 +108,7 @@ usually means nobody looked:
    in the schema."* The loader asked BigQuery to partition on `_slice_date`, and
    `replay.py` was not writing that column into the Parquet. Compile-checking
    cannot find this: both halves are individually valid and only disagree when a
-   real load job reads a real file. Fixed in `eeccd0e`, which added
+   real load job reads a real file. Fixed in `270d18e`, which added
    `SLICE_COLUMN` to the slice writer.
 2. `job.output_rows` cannot verify idempotency (above).
 3. Torn loads pass reconciliation (above).
