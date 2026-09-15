@@ -24,6 +24,14 @@ refuses anything that is not a single `SELECT` and **injects** the `LIMIT`, and
 the query is priced before it runs — {{nl2sql_matched}}/{{nl2sql_gold_total}}
 on a gold set, for ${{nl2sql_usd}} of Gemini across the whole evaluation.
 
+![The NL→SQL agent answering a question: the generated SQL with the guard's
+injected LIMIT, and the cost of the call](docs/img/nl2sql-demo.png)
+
+Not a mockup and not pasted in by hand. `make screenshot` drives the running app
+with Selenium, asks that question, and refuses to save unless the panel shows all
+three things this README says it shows — the SQL, the cost, and the injected
+`LIMIT`. The numbers in it were produced by the same build as the numbers below.
+
 ---
 
 ## The finding this project is built around

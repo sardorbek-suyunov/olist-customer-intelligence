@@ -62,6 +62,7 @@ def default_out() -> Path:
     """
     return EVAL_DIR / f"nl2sql_{AGENT_PROMPT_VERSION}.json"
 
+
 FLOAT_TOLERANCE = 1e-6
 
 

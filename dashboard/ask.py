@@ -131,7 +131,7 @@ def render(model: str = "gemini-3.1-flash-lite") -> None:
     if example.get("note"):
         st.caption(example["note"])
     with st.expander("SQL"):
-        st.code(example["sql"], language="sql")
+        st.code(example["sql"], language="sql", wrap_lines=True)
 
     st.divider()
 
@@ -206,7 +206,11 @@ def render(model: str = "gemini-3.1-flash-lite") -> None:
     else:
         st.dataframe(pd.DataFrame(answer.rows), width="stretch", hide_index=True)
 
-    st.code(answer.sql, language="sql")
+    # wrap_lines because the SQL is the point of this feature. Unwrapped, a
+    # generated statement runs off the right edge of the column and the reader
+    # sees the first clause and a horizontal scrollbar -- which hides exactly
+    # the part worth showing, the guard's injected LIMIT at the end.
+    st.code(answer.sql, language="sql", wrap_lines=True)
     st.caption(
         f"${answer.usd_spent:.5f} of Gemini · "
         + ("LIMIT added by the guard · " if answer.limit_added else "")

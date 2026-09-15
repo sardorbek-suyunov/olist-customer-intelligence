@@ -115,6 +115,10 @@ readme: ## Render README.md from README.template.md and the measured figures
 readme-check: ## Fail if the committed README disagrees with the figures
 	python scripts/render_readme.py --check
 
+.PHONY: screenshot
+screenshot: ## Regenerate the README's NL->SQL screenshot (needs `make dashboard` running; ~$0.0006)
+	python scripts/capture_demo_screenshot.py
+
 .PHONY: gemini-check
 gemini-check: ## Resolve the Gemini model against your key, e.g. make gemini-check MODEL=<id>
 	python scripts/check_gemini.py $(if $(MODEL),--model $(MODEL),)
