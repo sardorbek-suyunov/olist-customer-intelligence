@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+#
+# None of these is a credential -- a GCP project id is public the moment anyone
+# sees a dataset path -- but they are deployment facts, and this repository
+# keeps deployment facts in one declared place.
+#
+# Authentication is Application Default Credentials: `gcloud auth application-
+# default login`. There is deliberately no service-account key anywhere in this
+# configuration; see the README on Workload Identity Federation.
+
+project_id = "your-gcp-project-id"
+
+# Optional -- both have working defaults.
+# region      = "us-central1"
+# bq_location = "US"

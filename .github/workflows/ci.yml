@@ -281,3 +281,41 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
+
+  # Terraform: syntax and formatting only. NO `plan`.
+  #
+  # A plan needs credentials against a live project, and this whole workflow is
+  # deliberately credential-free -- every other job runs against DuckDB reading
+  # CSVs in place, with no cloud identity anywhere. Adding a long-lived service
+  # account key to repository secrets to get a nicer badge would trade a real
+  # property of this pipeline for the appearance of rigour, and a JSON key in CI
+  # is exactly the kind of standing credential the rest of the project avoids.
+  #
+  # The plan is run locally against the real project and its output is committed
+  # as infra/terraform/PLAN.txt, which is evidence a reader can check.
+  #
+  # Workload Identity Federation would let this job plan with no stored key at
+  # all -- see the README. It is a deliberate not-done, not an unknown.
+  terraform:
+    name: Terraform validate + fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.1"
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff
+        working-directory: infra/terraform
+
+      # -backend=false: initialise providers for validation without configuring
+      # or contacting any state backend. This is what makes validate possible
+      # with no credentials.
+      - name: Init (no backend, no credentials)
+        run: terraform init -backend=false -input=false
+        working-directory: infra/terraform
+
+      - name: Validate
+        run: terraform validate -no-color
+        working-directory: infra/terraform

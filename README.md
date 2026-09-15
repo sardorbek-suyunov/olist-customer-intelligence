@@ -785,12 +785,49 @@ something.
 | `gemini_budget` | prices the call with `countTokens` **before** issuing it, reserves against a shared ledger, settles against real usage |
 | `sql_guard` | parses with sqlglot, rejects anything that is not a single `SELECT`, **injects** a `LIMIT` rather than asking for one |
 | `bq_safety` | dry-runs for exact bytes, checks both ceilings, sets `maximum_bytes_billed` so BigQuery enforces it server-side |
-| **IAM** | the service account holds `dataViewer` on the marts dataset and nothing else |
+| ~~**IAM**~~ | ~~the service account holds `dataViewer` on the marts dataset and nothing else~~ — **this was never true. See below.** |
 
-The last row is the boundary. The three above it run *inside* the application,
-so they protect against the model behaving badly, not against the application
-behaving badly. The grant survives the code being wrong — which, per the table
-above, it was.
+The three real rows run *inside* the application, so they protect against the
+model behaving badly, not against the application behaving badly.
+
+### ⚠️ The IAM row was false, and it was the row called "the boundary"
+
+This table used to end with an IAM grant, described as *"the control that
+actually stops a DELETE"*, with the other three presented as defence in depth on
+top of it. **It does not exist.** Enumerating the project to write the Terraform
+found:
+
+```
+$ gcloud projects get-iam-policy olist-customer-intelligence
+ROLE         MEMBERS
+roles/owner  user:…
+
+$ dataset access entries, all four datasets
+projectOwners · projectWriters · projectReaders · owner        ← GCP defaults only
+```
+
+No service account, no `dataViewer`, no dataset-level grant. And the live
+BigQuery path in `dashboard/app.py` calls `bigquery.Client()` with Application
+Default Credentials — so when it runs, it runs **as the project owner**, which is
+the opposite of the least privilege the row claimed.
+
+It was always a plan. A note from the setup session reads *"the Streamlit service
+account is to be IAM-scoped to marts only **later**"*. The README wrote the
+intention in the present tense and then leaned on it, and everything downstream
+inherited the error — including the architecture diagram, which labelled the box
+*"what actually stops a DELETE"*.
+
+**This is the thirteenth instance**, and its own variety: not a status reported
+by the wrong thing, but a control that was described before it was built and
+then cited as the foundation of everything above it. The previous twelve were
+all found by executing something. This one could not be — there was nothing to
+execute. It took enumerating the platform and comparing it to the prose, which
+is exactly what the Terraform work forced and nothing else would have.
+
+What actually limits the BigQuery path today is `maximum_bytes_billed`, and
+`gcloud` refusing to do what an unauthenticated caller asks. The demo path has
+no GCP identity at all — see the DuckDB hardening above, which is a real
+boundary and was tested by attacking it.
 
 ### The deployed demo does not have that boundary
 
@@ -1065,6 +1102,86 @@ per-query cap cannot see.
 An LLM that writes SQL will eventually write a cross join. A prompt saying
 "always add a LIMIT" is a suggestion to a non-deterministic system; a
 `maximum_bytes_billed` on the job is a control.
+
+---
+
+## Infrastructure as code
+
+`infra/terraform/` describes the GCP side: four BigQuery datasets, four enabled
+APIs, and two quota overrides. `terraform validate` and `fmt -check` run in CI.
+
+**Written from an enumeration, not from memory.** Every resource was read out of
+the live project first — `gcloud iam service-accounts list`, the BigQuery
+client's own dataset and access-entry listing, `gcloud services list --enabled`,
+`gcloud alpha services quota list` — then imported into state, then planned until
+the plan was empty. That output is committed as
+[`infra/terraform/PLAN.txt`](infra/terraform/PLAN.txt):
+
+```
+No changes. Your infrastructure matches the configuration.
+```
+
+Config that has never been reconciled against the resources it claims to manage
+is a description that looks authoritative and was never checked. A `.tf` file is
+unusually good at that, because it looks like infrastructure whether or not it
+matches any. **The first draft of this one already had the disease**: it gave
+each dataset a helpful description, and the first plan reported four in-place
+updates, because the live datasets have no description at all. Config that would
+have *changed* the project on first apply, while claiming to describe it. The
+descriptions are comments now.
+
+**What is deliberately not managed.** The project itself is referenced through a
+variable, never managed — a stray `destroy` should not be able to take the
+datasets, the billing link and the enrichment output with it. Project IAM is left
+alone because its single binding is the owner, and a botched apply that removes
+the only administrator is worse than anything it prevents. The
+`ais-gemini-key-…` service account is Google-created and Google-managed.
+
+**The data is protected twice.** `prevent_destroy` stops Terraform planning a
+destroy at all; `delete_contents_on_destroy = false` means BigQuery then refuses
+to drop a non-empty dataset. There is no `deletion_protection` argument on
+`google_bigquery_dataset` — it exists on tables, not datasets — so that is the
+whole of what is available, and it is stated rather than implied. `olist_raw` and
+`olist_marts` hold enrichment output that cost $3.19
+and 85 minutes and cannot be regenerated for free.
+
+### The quota override is real, and it is on the wrong metric
+
+The intent was a daily ceiling on BigQuery **query** bytes — platform-enforced
+rather than application-enforced, for the same reason this project prefers
+`maximum_bytes_billed` to asking a model nicely.
+
+`bigquery.googleapis.com/quota/query/usage` reports `consumerOverride: null`.
+**The cap is not set.** Two overrides do exist, both at exactly 10 GB/day:
+
+| metric | default | override | what it constrains |
+|---|---|---|---|
+| `quota/extract/bytes` | 50 TiB | 10 GB | bytes **extract jobs** write. This project runs none. |
+| `quota/query/alloydb_federated_query_cross_region_bytes` | 1 TiB | 10 GB | federated queries against **AlloyDB**. There is no AlloyDB instance. |
+
+Both names contain "bytes" and both sit near the query metrics in a filtered
+console list. Both are inert.
+
+They are imported and codified anyway, because they exist — a config that omits
+live resources because they are embarrassing is exactly as inaccurate as one
+that invents resources that are absent. Correcting them is a change to
+infrastructure and a separate decision; the one-liner is in `quotas.tf`.
+
+### CI validates, it does not plan
+
+A `plan` needs credentials against a live project. This pipeline is deliberately
+credential-free — every other job runs against DuckDB reading CSVs in place, with
+no cloud identity anywhere — and putting a long-lived service-account key in
+repository secrets to earn a nicer badge would trade a real property of the
+pipeline for the appearance of rigour.
+
+**Workload Identity Federation would close that gap properly**, letting the job
+mint a short-lived token from GitHub's OIDC identity with no stored key at all.
+It is not configured here. That is a **deliberate not-done, not an unknown**: it
+needs a workload identity pool, a provider bound to this repository, and a
+service account with the right impersonation binding — real setup, worth doing
+when something actually depends on CI planning, and dishonest to imply is
+present. The local plan output is committed instead, which a reader can check.
 
 ---
 

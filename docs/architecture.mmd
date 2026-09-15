@@ -64,10 +64,10 @@ flowchart TB
     GUARD["sql_guard<br/>sqlglot · single SELECT<br/>injects the LIMIT"]
     SAFE["bq_safety<br/>dry run · both ceilings<br/>maximum_bytes_billed"]
     TRANS["snapshot_runner<br/>transpiles BigQuery SQL<br/>→ DuckDB, on the AST"]
-    IAM["IAM · dataViewer on marts<br/>what actually stops a DELETE"]
+    ADC["ADC · runs as project OWNER<br/>no scoped service account exists"]
 
     APP --> AGENT --> BUDGET --> GUARD
-    GUARD --> SAFE --> IAM
+    GUARD --> SAFE --> ADC
     GUARD --> TRANS
   end
 
@@ -86,14 +86,14 @@ flowchart TB
   classDef neutral fill:#26262e,stroke:#8b8b9a,stroke-width:1px,color:#ececf2
 
   class RAW,STG,INT,MARTS both
-  class VEC,SAFE,IAM bq
+  class VEC,SAFE,ADC bq
   class PARQ,TRANS duck
   class CSV,REPLAY,SLICES,LOAD,VERIFY,DBTRUN,LABEL,LABELS,EMBED,SNAP,APP,AGENT,GUARD,BUDGET neutral
 
   subgraph KEY["Which engine runs what"]
     direction LR
     K1["Both engines<br/>identical dbt models"]
-    K2["BigQuery only<br/>bytes, vectors, IAM"]
+    K2["BigQuery only<br/>bytes and vectors"]
     K3["DuckDB only<br/>the public demo"]
   end
 

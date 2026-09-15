@@ -136,3 +136,18 @@ Thumbs.db
 .idea/
 .vscode/
 !.vscode/extensions.json
+
+# ---------------------------------------------------------------------------
+# Terraform
+# ---------------------------------------------------------------------------
+# State holds every attribute of every managed resource, including ones the API
+# returns that nobody declared. It is machine-written, it is not a source of
+# truth about intent, and it is the file most likely to carry something that
+# should not be public. The committed evidence is PLAN.txt instead.
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfplan
+infra/terraform/.terraform.lock.hcl.bak
+# Identifiers. The .example beside it IS committed.
+infra/terraform/terraform.tfvars

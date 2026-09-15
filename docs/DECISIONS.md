@@ -688,3 +688,48 @@ tables, allowlisted functions, injected LIMIT, priced before the call, inside th
 timeout. The failure is orthogonal to all of them. That is the most useful thing
 the demo demonstrates about LLM-written SQL, and removing it would remove the
 demonstration. See the README's "A question it answers confidently and wrongly".
+
+## 18. Terraform describes what exists, including the parts that are wrong
+
+**The call.** `infra/terraform/` was written from an enumeration of the live
+project, imported, and planned to zero changes before anything was committed. Two
+resources that are demonstrably misconfigured are codified as they are, and one
+control the documentation claimed was deleted from the documentation rather than
+created in the project.
+
+**Why enumerate first.** Infrastructure-as-code has a failure mode the rest of
+this repository would recognise instantly: a `.tf` file looks like infrastructure
+whether or not it matches any. Nothing compiles it against reality, and a reader
+has no way to tell a reconciled config from an aspirational one. The first draft
+here proved the point -- it gave each dataset a description, and the first plan
+reported four in-place updates, because the live datasets have none. Config that
+would have CHANGED the project on first apply while claiming to describe it.
+
+**Why the misapplied quota overrides are kept.** The intended control was a daily
+ceiling on query bytes. It does not exist. Two overrides at 10 GB/day do, on
+`quota/extract/bytes` and on AlloyDB cross-region federated query bytes -- one
+constrains a job type this project never runs, the other a product it does not
+use. Omitting them would make the config a description of the project as someone
+wishes it were. Correcting them changes a live ceiling, which is a decision, not
+a side effect of writing things down. So they are imported, and the correction is
+a documented one-liner.
+
+**Why the IAM row was deleted rather than implemented.** The README described a
+service account holding `dataViewer` on the marts dataset as "the control that
+actually stops a DELETE", with the parser, the budget and the byte ceiling
+presented as defence in depth on top of it. Project IAM holds one binding, the
+owner; every dataset carries only the four GCP defaults. Creating the service
+account now would make the sentence true, and would also mean the repository
+spent eight weeks citing a control it did not have and then quietly built it. The
+sentence is struck through instead, with what it actually claimed and why it was
+wrong, because that is the more useful artifact.
+
+**Why CI does not plan.** A plan needs credentials. This pipeline has none by
+design, and a long-lived service-account key in repository secrets would trade
+that for a badge. Workload Identity Federation is the correct fix and is
+explicitly not-done rather than unknown. The local plan is committed as evidence.
+
+**What is deliberately unmanaged**: the project (a stray destroy would take the
+datasets, the billing link and the enrichment output), project IAM (a botched
+apply could remove the only administrator), and the Google-managed service
+account backing the Gemini API key.
