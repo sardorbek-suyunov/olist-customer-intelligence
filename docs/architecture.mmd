@@ -1,0 +1,102 @@
+%% Olist Customer Intelligence -- architecture.
+
+%% THIS FILE IS THE SOURCE OF TRUTH FOR THE DIAGRAM.
+
+%% docs/img/architecture.svg is RENDERED from it by `make diagram`. If the two
+%% disagree, this one is right and the image is stale -- change this file first.
+
+%% Every dbt model and dataset named below is asserted to exist in the dbt
+%% manifest by analytics/tests/test_architecture_diagram.py, which runs in CI.
+%% A model renamed or dropped fails the build rather than leaving a picture
+%% quietly describing a pipeline that no longer exists. That check, and the fact
+%% that the image is generated from this file rather than drawn beside it, are
+%% the only reasons an image artifact is allowed in this repository.
+
+%% Detail belongs in the README, not in a node label. A diagram that tries to
+%% state every figure becomes a tall column of paragraphs nobody reads, which is
+%% what the first version of this was.
+
+%% NOTE: a line that is exactly "%%" breaks mermaid's comment stripper -- it eats
+%% the newline and glues the next line onto the marker. Leave blank lines blank.
+
+flowchart TB
+
+  CSV["<b>archive/*.csv</b><br/>Kaggle extract · 9 files<br/>1,550,851 rows"]
+
+  subgraph AF["<b>Airflow 3</b> · olist_backfill_monthly @monthly · olist_incremental_daily @daily"]
+    direction LR
+    REPLAY["<b>replay_slice</b><br/>ingestion/replay.py"]
+    SLICES[("<b>data/slices/</b><br/>56 windows · Parquet<br/><i>not committed</i>")]
+    LOAD["<b>load_to_warehouse</b><br/>ingestion/load.py"]
+    VERIFY["<b>verify_slice_complete</b><br/><i>COUNT(*) from the table,<br/>not the job's output_rows</i>"]
+    DBTRUN["<b>dbt_build</b>"]
+
+    REPLAY --> SLICES --> LOAD --> VERIFY --> DBTRUN
+  end
+
+  subgraph WH["<b>Warehouse</b> · one dbt codebase, two adapters, no forked models"]
+    direction LR
+    RAW[("<b>raw</b> · 11 sources<br/>olist_raw")]
+    STG["<b>staging</b> · 9 views<br/>stg_customers · stg_orders<br/>stg_order_items · stg_order_payments<br/>stg_order_reviews · stg_products<br/>stg_sellers · stg_geolocation<br/>stg_review_enrichment"]
+    INT["<b>intermediate</b> · 3 ephemeral<br/>int_customer_address_versions<br/>int_customer_rfm<br/>int_order_review_aspects"]
+    MARTS["<b>marts</b> · 5 models<br/>dim_customers <i>SCD2</i><br/>dim_products · dim_sellers<br/>fct_orders <i>incremental, as-of join</i><br/>fct_segment_aspect <i>RFM × aspect</i>"]
+
+    RAW --> STG --> INT --> MARTS
+  end
+
+  subgraph ENR["<b>Gemini enrichment</b> · offline, run once, committed"]
+    direction LR
+    LABEL["<b>enrich.py</b><br/>flash-lite · prompt v1<br/>35,616 texts · 16 aspects"]
+    LABELS[("<b>enrichment/data/*.parquet</b><br/><i>committed — re-run costs $0</i>")]
+    EMBED["<b>embed.py</b><br/>gemini-embedding-2 · 1536-d"]
+    VEC[("<b>embeddings</b> · 35,616<br/>VECTOR_SEARCH, brute force<br/>42.5% of the query ceiling")]
+
+    LABEL --> LABELS --> EMBED --> VEC
+  end
+
+  subgraph SERVE["<b>Serving</b>"]
+    direction LR
+    SNAP["<b>export_snapshot.py</b>"]
+    PARQ[("<b>dashboard/data/*.parquet</b><br/><i>committed, ~15 MB</i>")]
+    APP["<b>Streamlit</b><br/>dashboard/app.py"]
+    AGENT["<b>NL→SQL agent</b><br/>analytics/nl2sql.py<br/>prompt v2 · 23/25"]
+    BUDGET["<b>gemini_budget</b><br/><i>priced before the call</i>"]
+    GUARD["<b>sql_guard</b><br/>sqlglot · single SELECT<br/><b>injects</b> the LIMIT"]
+    SAFE["<b>bq_safety</b><br/>dry run · both ceilings<br/>maximum_bytes_billed"]
+    TRANS["<b>snapshot_runner</b><br/><i>transpiles BigQuery SQL<br/>→ DuckDB, on the AST</i>"]
+    IAM["<b>IAM</b> · dataViewer on marts<br/><i>what actually stops a DELETE</i>"]
+
+    APP --> AGENT --> BUDGET --> GUARD
+    GUARD --> SAFE --> IAM
+    GUARD --> TRANS
+  end
+
+  CSV --> REPLAY
+  LOAD --> RAW
+  DBTRUN -.->|builds| RAW
+  LABELS -->|"source olist_enrichment"| STG
+  MARTS --> SNAP --> PARQ --> TRANS
+  CSV --> LABEL
+  MARTS --> SAFE
+  VEC --> SAFE
+
+  classDef bq      fill:#12304d,stroke:#4a9eff,stroke-width:2px,color:#e8f1fb
+  classDef duck    fill:#43340c,stroke:#ffc857,stroke-width:2px,color:#fff8e7
+  classDef both    fill:#153322,stroke:#4ade80,stroke-width:2px,color:#e9fbf0
+  classDef neutral fill:#26262e,stroke:#8b8b9a,stroke-width:1px,color:#ececf2
+
+  class RAW,STG,INT,MARTS both
+  class VEC,SAFE,IAM bq
+  class PARQ,TRANS duck
+  class CSV,REPLAY,SLICES,LOAD,VERIFY,DBTRUN,LABEL,LABELS,EMBED,SNAP,APP,AGENT,GUARD,BUDGET neutral
+
+  subgraph KEY["<b>Which engine runs what</b>"]
+    direction LR
+    K1["<b>Both engines</b><br/>identical dbt models"]
+    K2["<b>BigQuery only</b><br/>bytes, vectors, IAM"]
+    K3["<b>DuckDB only</b><br/>the public demo"]
+  end
+
+  class K1 both
+  class K2 bq
+  class K3 duck

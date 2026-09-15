@@ -119,6 +119,10 @@ readme-check: ## Fail if the committed README disagrees with the figures
 screenshot: ## Regenerate the README's NL->SQL screenshot (needs `make dashboard` running; ~$0.0006)
 	python scripts/capture_demo_screenshot.py
 
+.PHONY: diagram
+diagram: ## Render docs/img/architecture.svg from docs/architecture.mmd
+	python scripts/render_diagram.py
+
 .PHONY: gemini-check
 gemini-check: ## Resolve the Gemini model against your key, e.g. make gemini-check MODEL=<id>
 	python scripts/check_gemini.py $(if $(MODEL),--model $(MODEL),)

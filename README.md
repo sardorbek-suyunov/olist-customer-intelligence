@@ -15,7 +15,7 @@ by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 
 [![CI](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml)
 
-**79 dbt tests · 128 Python tests · full build in ~5s on DuckDB · $0 to run**
+**79 dbt tests · 134 Python tests · full build in ~5s on DuckDB · $0 to run**
 
 ### ▶ Live demo: not yet deployed
 
@@ -90,23 +90,23 @@ empty snapshot configs to look thorough would be worse than not having them.
 
 ## Architecture
 
-```
-archive/*.csv
-    │
-    ▼  ingestion/replay.py  ── replays the static extract as time-ordered,
-    │                          referentially-consistent Parquet slices
-    ▼
-data/slices/purchase_date=YYYY-MM-DD/
-    │
-    ▼  dbt staging (views)      stg_customers · stg_orders · stg_order_items · …
-    │
-    ▼  dbt intermediate         int_customer_address_versions   ← SCD2 derivation
-    │
-    ▼  dbt marts (tables)       dim_customers (SCD2) · dim_products · dim_sellers
-    │                           fct_orders  ← as-of join
-    ▼
-scripts/export_snapshot.py ──▶ dashboard/data/*.parquet ──▶ Streamlit
-```
+![Architecture: CSVs through replay, Airflow-orchestrated load and dbt build, into
+staging, intermediate and marts, with Gemini enrichment and the Streamlit demo.
+Green nodes run on both engines, blue on BigQuery only, gold on DuckDB
+only.](docs/img/architecture.svg)
+
+**Green runs on both engines from the same models; blue is BigQuery only; gold is
+the DuckDB-only demo path.** The colouring is the point of the picture — it is
+the one part of this design that a file listing does not show.
+
+The diagram source is [`docs/architecture.mmd`](docs/architecture.mmd) and the
+SVG is rendered from it by `make diagram`. A diagram is the easiest thing in a
+repository to let rot: nothing compiles it, and a stale box looks exactly like a
+correct one. So `test_architecture_diagram.py` asserts every model and dataset
+named in it against the dbt manifest, every mart against the diagram, and — since
+an SVG is text — that the committed image still contains the labels its source
+declares. Rename a model and the build fails rather than the picture quietly
+lying. That check is why an image is allowed in this repository at all.
 
 Orchestrated by two Airflow 3 DAGs (`orchestration/dags/olist_batch.py`), each a
 thin `BashOperator` wrapper over CLI-invokable modules — so swapping Airflow for
@@ -953,7 +953,7 @@ An LLM that writes SQL will eventually write a cross join. A prompt saying
 
 ```
 analytics/          NL->SQL spend ceilings, Gemini demo budget, cached examples
-                    (+ 71 unit tests)
+                    (+ 77 unit tests)
 dashboard/          Streamlit app + committed Parquet snapshot of the marts
 docs/adr/           Architecture decision records
 docs/DECISIONS.md   Judgement calls and their reasoning -- distinct from the ADRs
@@ -988,10 +988,10 @@ was shared because a service-account key expired is worse than no demo.
 | Gemini review enrichment | **Executed** — 35,616 texts labelled at vv1 for $3.19, 0 quarantined, labels committed |
 | Per-aspect eval + v1→v2 prompt iteration | **Executed** — 600-review sample, micro F1 0.905 → 0.916; recall reported for 3 of 16 aspects and withheld for 13 |
 | `fct_segment_aspect` (RFM × aspect, coverage as a column) | **Built and tested** — complete grid, provenance-stamped, 79 dbt tests green |
-| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 71 unit tests including a ten-thread concurrency check |
+| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 77 unit tests including a ten-thread concurrency check |
 | Review embeddings (`gemini-embedding-2`, 1,536-d) | **Executed** — all 35,616 texts, $0.1374, cost log reconciles to zero gap |
 | `VECTOR_SEARCH` under the byte ceiling | **Measured on executed queries** — 435.0 MiB, 42.5% of the per-query ceiling |
-| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 23/25 execution accuracy (92.0%), 71 unit tests |
+| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 23/25 execution accuracy (92.0%), 77 unit tests |
 | Secret scan over full git history, in CI | **Executed** — clean; verified against a planted key that the scan can fail |
 
 Planned means planned. Nothing in this README describes code that does not
