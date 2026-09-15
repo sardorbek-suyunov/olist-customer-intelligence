@@ -2,7 +2,7 @@
 Score the NL->SQL agent by EXECUTION accuracy, and explain every failure.
 
     python scripts/eval_nl2sql.py --validate-gold --backend duckdb
-    python scripts/eval_nl2sql.py --backend bigquery --out enrichment/eval/nl2sql.json
+    python scripts/eval_nl2sql.py --backend bigquery
 
 Execution accuracy: run the agent's SQL and the gold SQL, compare the RESULT
 SETS. Not string similarity, which would reward SQL that looks like mine over
@@ -43,8 +43,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from analytics import settings  # noqa: E402
 from analytics.bq_safety import DEFAULT_MAX_BYTES_PER_QUERY  # noqa: E402
 from analytics.gold_questions import GOLD  # noqa: E402
+from analytics.nl2sql import AGENT_PROMPT_VERSION, prompt_fingerprint  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+EVAL_DIR = ROOT / "enrichment" / "eval"
+
+
+def default_out() -> Path:
+    """
+    The artifact is NAMED by the prompt that produced it, and stamped with it.
+
+    Both halves matter. Naming means a bumped prompt writes somewhere new, so a
+    consumer reading the old path gets a missing file rather than the previous
+    prompt's score. Stamping means the consumer can check that the file it found
+    actually came from the prompt that ships, which a filename cannot establish
+    -- the drift this replaces was a correct render of a file whose name was the
+    only thing claiming it was current.
+    """
+    return EVAL_DIR / f"nl2sql_{AGENT_PROMPT_VERSION}.json"
 
 FLOAT_TOLERANCE = 1e-6
 
@@ -123,7 +139,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--duckdb-path", type=Path, default=ROOT / "transform" / "olist.duckdb")
     parser.add_argument("--model", default="gemini-3.1-flash-lite")
     parser.add_argument("--validate-gold", action="store_true", help="run the gold SQL only")
-    parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=f"default: {default_out().relative_to(ROOT).as_posix()} (named from the prompt version)",
+    )
     args = parser.parse_args(argv)
 
     backend = DuckBackend(args.duckdb_path) if args.backend == "duckdb" else BigQueryBackend()
@@ -287,13 +308,16 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"      {record['outcome']}: {record.get('detail', '')[:160]}")
 
-        if args.out:
-            args.out.parent.mkdir(parents=True, exist_ok=True)
-            args.out.write_text(
+        out_path = args.out or default_out()
+        if out_path:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(
                 json.dumps(
                     {
                         "model": args.model,
                         "backend": args.backend,
+                        "prompt_version": AGENT_PROMPT_VERSION,
+                        "prompt_fingerprint": prompt_fingerprint(),
                         "total": total,
                         "matched": matched,
                         "accuracy": round(matched / total, 4),
@@ -308,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 encoding="utf-8",
             )
-            print(f"\nwrote {args.out}")
+            print(f"\nwrote {out_path}  (prompt {AGENT_PROMPT_VERSION} {prompt_fingerprint()})")
         return 0
     finally:
         backend.close()

@@ -52,6 +52,11 @@ dashboard/data/demo_ledger.json
 # Generated, but committed on purpose: it is what README.md is rendered from,
 # and CI compares a fresh render against the committed one.
 !docs/figures.json
+# Where the public demo lives, declared once. profile_dataset.py renders the
+# README's demo link from this, so an uncommitted copy would fail the build on a
+# clone -- and, worse, would make the deployed URL a local fact that CI cannot
+# see. Contains no secret: it is the same URL the README publishes.
+!docs/deployment.json
 # The one committed replay slice: a 45 KB test fixture, so the loader tests do
 # not need the 123 MB source dataset.
 !ingestion/tests/fixtures/**/_manifest.json

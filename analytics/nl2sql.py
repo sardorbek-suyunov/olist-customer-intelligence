@@ -35,6 +35,7 @@ examples the agent learns from are the same ones a visitor can see run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import re
@@ -205,16 +206,24 @@ def example_prompt(schema: str = MARTS_SCHEMA) -> str:
     return "\n\n".join(blocks)
 
 
-def build_prompt(
-    question: str,
-    schema: str = MARTS_SCHEMA,
-    columns_by_table: dict[str, list[str]] | None = None,
-) -> str:
-    return f"""You write BigQuery SQL against a small analytics warehouse.
+# The version of the prompt below, and a fingerprint of its authored text.
+#
+# These exist because docs/figures.json read its NL->SQL numbers from a filename
+# typed into scripts/profile_dataset.py -- `nl2sql_v1.json`. The prompt moved to
+# v2 and the pinned path did not, so the README reported the previous prompt's
+# 22/25 while shipping the agent that scores 23/25, and `make readme-check`
+# passed throughout because the render was faithful to figures that were
+# faithful to a superseded file.
+#
+# The version names the eval artifact, so bumping the prompt makes the profiler
+# look for a file that does not exist rather than silently read the last one.
+# The fingerprint closes the other direction: editing these rules WITHOUT
+# bumping the version changes the hash, and the profiler refuses an artifact
+# whose stamp no longer matches what ships. Deriving the path alone would still
+# trust the filename, and a filename is not evidence.
+AGENT_PROMPT_VERSION = "v2"
 
-{schema_prompt(schema=schema, columns_by_table=columns_by_table)}
-
-RULES
+RULES_TEMPLATE = """RULES
 - Return SQL only. No prose, no markdown fences, no explanation.
 - One SELECT statement. Never INSERT, UPDATE, DELETE, CREATE or MERGE.
 - Only the tables above, fully qualified as {schema}.<table>.
@@ -234,7 +243,35 @@ RULES
 - aspect_rate_of_reviewed is the rate among orders that HAVE review text.
   aspect_rate_of_all_orders is over all orders. They are different questions and
   review_text_coverage_pct is the difference between them.
+"""
 
+
+def prompt_fingerprint() -> str:
+    """
+    SHA-256 over the AUTHORED prompt: the rules above and the worked examples.
+
+    The schema block is excluded deliberately. It is generated from the
+    warehouse, so it moves whenever a column is added, and a fingerprint that
+    changed on every dbt run would be noise rather than a control -- it would be
+    ignored within a week, which is worse than not having it.
+
+    What is left is exactly the part a person edits, which is the part that
+    invalidates a score.
+    """
+    authored = RULES_TEMPLATE + "\n" + example_prompt(schema=MARTS_SCHEMA)
+    return hashlib.sha256(authored.encode("utf-8")).hexdigest()[:16]
+
+
+def build_prompt(
+    question: str,
+    schema: str = MARTS_SCHEMA,
+    columns_by_table: dict[str, list[str]] | None = None,
+) -> str:
+    return f"""You write BigQuery SQL against a small analytics warehouse.
+
+{schema_prompt(schema=schema, columns_by_table=columns_by_table)}
+
+{RULES_TEMPLATE.format(schema=schema)}
 EXAMPLES
 
 {example_prompt(schema=schema)}

@@ -1,6 +1,9 @@
 {
   "model": "gemini-3.1-flash-lite",
   "backend": "bigquery",
+  "prompt_version": "v1",
+  "prompt_fingerprint": null,
+  "prompt_fingerprint_note": "Stamped retroactively. This run predates prompt fingerprinting and the v1 rules text was not preserved, so the fingerprint is unrecoverable and is recorded as null rather than guessed. Kept as the historical record behind the 11 -> 14 -> 22 -> 23 progression; it is not the shipped prompt, and scripts/profile_dataset.py will refuse it if it ever becomes so.",
   "total": 25,
   "matched": 22,
   "accuracy": 0.88,

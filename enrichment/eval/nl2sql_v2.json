@@ -1,6 +1,9 @@
 {
   "model": "gemini-3.1-flash-lite",
   "backend": "bigquery",
+  "prompt_version": "v2",
+  "prompt_fingerprint": "f5470e5e4d5b0ef1",
+  "prompt_fingerprint_note": "Stamped retroactively. The prompt text was verified byte-identical to the committed agent before the fingerprint was computed, so this hash describes the run that produced these scores.",
   "total": 25,
   "matched": 23,
   "accuracy": 0.92,

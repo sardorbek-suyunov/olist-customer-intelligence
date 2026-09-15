@@ -305,9 +305,43 @@ def enrichment_figures() -> None:
     # The scored run, if one has happened. Absent rather than zero when it has
     # not: a 0% accuracy figure and "no eval has been run" are different claims
     # and the README must not be able to print the first while meaning the second.
-    nl2sql_file = eval_dir / "nl2sql_v1.json"
+    #
+    # The artifact is RESOLVED from the shipped prompt version and then VERIFIED
+    # against the shipped prompt's fingerprint. This line used to read
+    # `nl2sql_v1.json`, pinned by hand; the agent moved to v2 and the path did
+    # not, so every NL->SQL figure in the README described a prompt that had
+    # stopped shipping. Nothing caught it, because `make readme-check` compares
+    # the README to the figures and the figures were rendered faithfully -- from
+    # the wrong file. Deriving the name fixes the version skew; checking the
+    # fingerprint fixes the case where the prompt is edited without a bump, which
+    # the name alone cannot see.
+    from analytics.nl2sql import AGENT_PROMPT_VERSION, prompt_fingerprint
+
+    nl2sql_file = eval_dir / f"nl2sql_{AGENT_PROMPT_VERSION}.json"
+    if not nl2sql_file.exists() and any(eval_dir.glob("nl2sql_*.json")):
+        stale = sorted(p.name for p in eval_dir.glob("nl2sql_*.json"))
+        raise SystemExit(
+            f"the agent ships prompt {AGENT_PROMPT_VERSION} and no eval has been run\n"
+            f"against it. Present: {', '.join(stale)}.\n\n"
+            "Scoring an older prompt and reporting it as current is the exact drift\n"
+            "this lookup replaced, so the figures are refused rather than backfilled\n"
+            "from whichever file happens to be there:\n"
+            "  python scripts/eval_nl2sql.py --backend bigquery"
+        )
     if nl2sql_file.exists():
         scored = json.loads(nl2sql_file.read_text(encoding="utf-8"))
+        shipped = prompt_fingerprint()
+        stamped = scored.get("prompt_fingerprint")
+        if stamped != shipped:
+            raise SystemExit(
+                f"{nl2sql_file.name} was produced by a different prompt than the one\n"
+                f"that ships: artifact {stamped!r}, shipped {shipped!r}.\n\n"
+                "The rules in analytics/nl2sql.py changed without AGENT_PROMPT_VERSION\n"
+                "being bumped, so this score no longer describes the shipped agent.\n"
+                "Re-run the eval, or restore the prompt:\n"
+                "  python scripts/eval_nl2sql.py --backend bigquery"
+            )
+        fig("nl2sql_prompt_version", scored["prompt_version"])
         fig("nl2sql_matched", scored["matched"])
         fig("nl2sql_total", scored["total"])
         fig("nl2sql_accuracy_pct", round(100 * scored["accuracy"], 1))
@@ -316,6 +350,35 @@ def enrichment_figures() -> None:
         for category, (matched, total) in scored["by_category"].items():
             fig(f"nl2sql_{category}_matched", matched)
             fig(f"nl2sql_{category}_total", total)
+
+        # Which questions still fail, from the artifact rather than from memory.
+        # The README named three failures and then described two, four paragraphs
+        # apart, because the list was typed once against the v1 run and the
+        # narrative was updated against v2. A count and a set of ids are the two
+        # things that move when the agent improves, so neither is written by hand.
+        mismatches = [r["id"] for r in scored["results"] if r["outcome"] != "match"]
+        fig("nl2sql_mismatch_count", len(mismatches))
+        fig("nl2sql_mismatch_ids", ", ".join(f"`{m}`" for m in mismatches))
+
+    # The public demo's URL. A deployment fact rather than a measurement, so it
+    # is declared in one file and RENDERED -- README.md previously read "Live at
+    # the URL above, behind the caps" with no URL anywhere above it. That is the
+    # same shape as every row in the failure table: a sentence asserting a state
+    # of the world that nothing had checked. Rendering it means the undeployed
+    # case prints an explicit marker instead, and cannot be forgotten.
+    deployment = json.loads((ROOT / "docs" / "deployment.json").read_text(encoding="utf-8"))
+    demo_url = deployment["demo_url"]
+    fig(
+        "demo_callout",
+        f"### ▶ [Try it live]({demo_url})" if demo_url else "### ▶ Live demo: not yet deployed",
+    )
+    fig(
+        "demo_availability",
+        "Live at the URL above, behind the caps."
+        if demo_url
+        else "**Not yet deployed**, so there is no URL to try. The caps below are in "
+        "force on the code path either way; they are not a property of the host.",
+    )
 
     # Total spend across BOTH ledgers, plus the pre-log gap. The README used to
     # quote the enrichment cost log alone, which cannot see the agent's calls.

@@ -15,7 +15,14 @@ by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 
 [![CI](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml)
 
-**79 dbt tests · 123 Python tests · full build in ~5s on DuckDB · $0 to run**
+**79 dbt tests · 128 Python tests · full build in ~5s on DuckDB · $0 to run**
+
+### ▶ Live demo: not yet deployed
+
+Ask the warehouse a question in English. The agent writes BigQuery SQL, a parser
+refuses anything that is not a single `SELECT` and **injects** the `LIMIT`, and
+the query is priced before it runs — 23/25
+on a gold set, for $0.01317 of Gemini across the whole evaluation.
 
 ---
 
@@ -616,9 +623,10 @@ Worth recording that skipping the index is a choice and not a limitation: the
 
 ## The NL→SQL agent
 
-`22 of 25` gold questions answered correctly —
-**88.0% execution accuracy** on `gemini-3.1-flash-lite`, for
-$0.01201 of Gemini. Live at the URL above, behind the caps.
+`23 of 25` gold questions answered correctly —
+**92.0% execution accuracy** on `gemini-3.1-flash-lite`, for
+$0.01317 of Gemini, on prompt `v2`.
+**Not yet deployed**, so there is no URL to try. The caps below are in force on the code path either way; they are not a property of the host.
 
 Execution accuracy means both statements are **run** and their result sets
 compared. Not string similarity: `count(*)` and `sum(1)` are the same answer and
@@ -631,24 +639,23 @@ answer key over SQL that answers the question.
 | aggregate | 5/5 |
 | ranking | 3/3 |
 | join | 1/1 |
-| **trap** | **3/6** |
+| **trap** | **4/6** |
 
 **Every failure is a trap question, and everything else is 19/19.** That is the
 result, not the headline percentage. `trap` questions are ones where the obvious
 SQL returns plausible rows and the wrong number — mostly the grain of
 `fct_segment_aspect`, which has one row per (segment, aspect).
 
-- **g08** *"which segment has the highest delivery complaint rate?"* — the agent
-  took `MAX(aspect_rate_of_reviewed)` over the delivery aspects where the
-  question needs `SUM`. It answered `champions, 9.24`; the truth is
-  `loyal, 30.41`. Right shape, wrong segment, nothing about it looks wrong.
-- **g22** *"compare champions and hibernating"* — returned 12 rows, one per
-  aspect, instead of 2 aggregated. Same grain, not aggregated at all.
-- **g09** is borderline and is counted as a failure anyway: the agent returned
-  `champions, 15924` where the gold returns `15924`. The value is right and
-  there is an extra label column. Kept strict rather than relaxed, because
-  loosening a comparison after seeing which cases it fails is how an accuracy
-  figure stops meaning anything.
+2 remain: `g09`, `g22`. Both are the same
+shape — the correct values with an extra context column — and both are described
+in full below, along with why they were not made to pass.
+
+The trap that the prompt *did* fix is worth naming, because it is the one that
+was dangerous. **g08** *"which segment has the highest delivery complaint rate?"*
+took `MAX(aspect_rate_of_reviewed)` across the delivery aspects where the
+question needs `SUM`, and answered `champions, 9.24` against a truth of
+`loyal, 30.41`. Wrong segment, plausible number, and nothing about the output
+looks wrong — which is why the grain rule in the prompt is written the way it is.
 
 ### 11 → 14 → 22 → 23, and three of the four steps were my bugs
 
@@ -665,10 +672,12 @@ the model. Finding out why is the reason the eval exists:
 Reporting 11/25 would have been wrong in the model's disfavour. Reporting 23/25
 without saying what moved would be wrong in mine.
 
-### The two that remain, and why I did not make them pass
+### The 2 that remain, and why I did not make them pass
 
 Both are now the *same* shape: the agent returns the **correct values** with an
-extra context column.
+extra context column. Values below are from the stamped `v2`
+artifact — the marts are rebuilt between runs, so quoting an earlier one here
+would print numbers that no build ever produced.
 
 ```
 g09  "How many customers are in the champions segment?"
@@ -686,8 +695,8 @@ Neither is wrong. Both are counted as failures anyway.
 Loosening the comparison **after** seeing exactly which cases it fails is how an
 accuracy figure stops meaning anything — the change would be indistinguishable
 from tuning the metric until the number improved. The rule was fixed before the
-run; it stays fixed after it. Two marks is a cheap price for that, and the
-discipline is more of a result than the two marks would have been.
+run; it stays fixed after it. 2 marks is a cheap price
+for that, and the discipline is more of a result than the marks would have been.
 
 ### The controls, and which one actually matters
 
@@ -705,7 +714,7 @@ above, it was.
 
 ---
 
-## One failure mode, eleven times
+## One failure mode, twelve times
 
 Every bug in this project that survived review shares a shape: **a status
 reported by something other than the thing being measured.** Not a wrong answer —
@@ -725,6 +734,7 @@ executing something, and each was invisible until then.
 | A `REPEATED FLOAT64` load schema reports 35,616 rows written | 35,616 rows of **empty arrays**. The job succeeded, the table reported 3.4 MiB, and `array_length` was 0 on every row. | The inferred schema fails loudly with the wrong type. This one succeeds, and is the version that would have shipped. |
 | A BigQuery **dry run** reports what a query will scan | The shape of the statement, not the contents of the table. Against those empty arrays it returned `1.2 MiB, 0.1% of the ceiling, OK`. | The query cannot execute at all — "Dimension of column embedding does not match". A byte measurement built on dry runs reported a comfortable pass on a table that could not be searched. |
 | The ceiling script reports the query fits | `Worst case 0.0 B, ∞x inside the per-query ceiling` — computed over zero rows. | **A safety check reporting safe because there was nothing to check**, written by the script whose entire purpose was to measure that ceiling. The sharpest instance in this table, and self-inflicted. |
+| `make readme-check` reports the README is current | That README.md matches README.template.md rendered against `docs/figures.json`. Not that the figures describe the code that ships. `profile_dataset.py` read the agent's scores from a hand-typed path, `nl2sql_v1.json`; the prompt moved to v2 and the path did not. | The README reported the previous prompt's 22/25 while shipping the agent that scores 23/25, and named three failing questions four paragraphs above describing two. **The drift gate passed on every run**, because the render was faithful to figures that were faithful to a superseded file. |
 
 The Airflow one is the clearest, because the gap is widest: a green status
 printed while the thing it described did not exist. The thinking budget is the
@@ -739,7 +749,20 @@ control that reported the wrong thing; that row is a control that reported
 table — which is the only fix that distinguishes "measured and fine" from
 "measured nothing".
 
-The fix is identical in all eleven cases, and it is not "be more careful":
+**The twelfth is the same error committed by the control built to prevent it.**
+`make readme-check` exists because the README's numbers had drifted three times.
+It works: the README cannot disagree with `docs/figures.json`. But it compares a
+document to figures, and the drift was *inside* the figures — a hand-typed
+filename pointing at the previous prompt's scores. The gate could not have
+failed, because the class of error it detects does not include this one, and a
+green check is read as "correct" rather than "consistent with something I did
+not verify". That is the ceiling script again: a check reporting safe over a
+question it was never able to ask. The fix is the same both times — make the
+check capable of failing. The eval artifact is now named from the shipped prompt
+version and stamped with a fingerprint of the prompt text, so a bump without a
+re-run finds no file and an edit without a bump fails the stamp.
+
+The fix is identical in all twelve cases, and it is not "be more careful":
 
 - **Count from the table, not from the job** — a partition-pruned `COUNT(*)`.
 - **Compile the macro, never transcribe it** — `dbt compile` renders what the
@@ -762,6 +785,13 @@ The fix is identical in all eleven cases, and it is not "be more careful":
   every row, after the job reports success.
 - **Execute the thing you are measuring** — a plan is not a result, and a
   measurement of nothing is not a pass.
+- **Name the artifact after what produced it, and stamp it** — a path typed by
+  hand is a claim about provenance that nothing checks. The score file is now
+  derived from the prompt version and carries a hash of the prompt text, so the
+  README cannot quote a run that does not describe the shipped agent.
+- **Ask what your green check is unable to see** — the generated README made a
+  whole class of drift impossible and left this one untouched. A control is only
+  as good as the question it can fail on.
 
 Every control in this repository is an instance of that: the completion marker
 that a slice writes only after every table lands, the parity test that re-derives
@@ -915,7 +945,7 @@ An LLM that writes SQL will eventually write a cross join. A prompt saying
 
 ```
 analytics/          NL->SQL spend ceilings, Gemini demo budget, cached examples
-                    (+ 66 unit tests)
+                    (+ 71 unit tests)
 dashboard/          Streamlit app + committed Parquet snapshot of the marts
 docs/adr/           Architecture decision records
 docs/DECISIONS.md   Judgement calls and their reasoning -- distinct from the ADRs
@@ -950,10 +980,10 @@ was shared because a service-account key expired is worse than no demo.
 | Gemini review enrichment | **Executed** — 35,616 texts labelled at vv1 for $3.19, 0 quarantined, labels committed |
 | Per-aspect eval + v1→v2 prompt iteration | **Executed** — 600-review sample, micro F1 0.905 → 0.916; recall reported for 3 of 16 aspects and withheld for 13 |
 | `fct_segment_aspect` (RFM × aspect, coverage as a column) | **Built and tested** — complete grid, provenance-stamped, 79 dbt tests green |
-| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 66 unit tests including a ten-thread concurrency check |
+| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 71 unit tests including a ten-thread concurrency check |
 | Review embeddings (`gemini-embedding-2`, 1,536-d) | **Executed** — all 35,616 texts, $0.1374, cost log reconciles to zero gap |
 | `VECTOR_SEARCH` under the byte ceiling | **Measured on executed queries** — 435.0 MiB, 42.5% of the per-query ceiling |
-| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 22/25 execution accuracy (88.0%), 66 unit tests |
+| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 23/25 execution accuracy (92.0%), 71 unit tests |
 | Secret scan over full git history, in CI | **Executed** — clean; verified against a planted key that the scan can fail |
 
 Planned means planned. Nothing in this README describes code that does not

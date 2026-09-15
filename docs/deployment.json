@@ -1,0 +1,5 @@
+{
+  "demo_url": null,
+  "verified": null,
+  "provenance": "Set demo_url ONLY after the deploy is live and the URL has been opened in a browser. Set `verified` to the date it was checked. Until then the README renders an explicit not-deployed marker rather than a link, because README.md previously read 'Live at the URL above' with no URL above it -- a claim with nothing behind it, which is the shape this project treats as worse than an absent badge."
+}
