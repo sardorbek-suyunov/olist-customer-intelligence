@@ -15,7 +15,7 @@ by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 
 [![CI](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/sardorbek-suyunov/olist-customer-intelligence/actions/workflows/ci.yml)
 
-**79 dbt tests · 159 Python tests · full build in ~5s on DuckDB · $0 to run**
+**79 dbt tests · 160 Python tests · full build in ~5s on DuckDB · $0 to run**
 
 ### ▶ Live demo: not yet deployed
 
@@ -1072,7 +1072,7 @@ An LLM that writes SQL will eventually write a cross join. A prompt saying
 
 ```
 analytics/          NL->SQL spend ceilings, Gemini demo budget, cached examples
-                    (+ 102 unit tests)
+                    (+ 103 unit tests)
 dashboard/          Streamlit app + committed Parquet snapshot of the marts
 docs/adr/           Architecture decision records
 docs/DECISIONS.md   Judgement calls and their reasoning -- distinct from the ADRs
@@ -1107,10 +1107,10 @@ was shared because a service-account key expired is worse than no demo.
 | Gemini review enrichment | **Executed** — 35,616 texts labelled at vv1 for $3.19, 0 quarantined, labels committed |
 | Per-aspect eval + v1→v2 prompt iteration | **Executed** — 600-review sample, micro F1 0.905 → 0.916; recall reported for 3 of 16 aspects and withheld for 13 |
 | `fct_segment_aspect` (RFM × aspect, coverage as a column) | **Built and tested** — complete grid, provenance-stamped, 79 dbt tests green |
-| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 102 unit tests including a ten-thread concurrency check |
+| Gemini demo budget (session/day/lifetime + cached answers) | **Built and tested** — 103 unit tests including a ten-thread concurrency check |
 | Review embeddings (`gemini-embedding-2`, 1,536-d) | **Executed** — all 35,616 texts, $0.1374, cost log reconciles to zero gap |
 | `VECTOR_SEARCH` under the byte ceiling | **Measured on executed queries** — 435.0 MiB, 42.5% of the per-query ceiling |
-| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 23/25 execution accuracy (92.0%), 102 unit tests |
+| NL→SQL agent: parsed SQL guard, injected LIMIT, both ceilings | **Built and evaluated** — 23/25 execution accuracy (92.0%), 103 unit tests |
 | Secret scan over full git history, in CI | **Executed** — clean; verified against a planted key that the scan can fail |
 
 Planned means planned. Nothing in this README describes code that does not

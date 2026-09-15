@@ -109,7 +109,7 @@ jobs:
           python scripts/download_data.py
 
       # The marts read a dbt source backed by the committed enrichment Parquet,
-      # added in 7d06ca2. CI never restored it, so every build since has failed
+      # added in 64fb41c. CI never restored it, so every build since has failed
       # six tests on "Table with name olist_raw.review_enrichment does not
       # exist". Free and keyless -- it is a local Parquet load, which is the
       # whole point of committing the snapshot.
