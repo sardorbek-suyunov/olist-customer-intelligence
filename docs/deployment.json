@@ -1,6 +1,6 @@
 {
-  "demo_url": null,
+  "demo_url": "https://olist-customer-intelligence-zwtfxo5cpowpdzk8ycu4ju.streamlit.app",
   "dbt_docs_url": null,
-  "verified": null,
-  "provenance": "Set a URL ONLY after it is live and has been opened in a browser, and set `verified` to the date it was checked. Until then the README renders an explicit not-deployed marker rather than a link, because README.md previously read 'Live at the URL above' with no URL above it -- a claim with nothing behind it, which is the shape this project treats as worse than an absent badge. dbt_docs_url is published by the `pages` job in .github/workflows/ci.yml; it will be https://<owner>.github.io/<repo>/ once Pages is enabled for this repository, and note that Pages on a PRIVATE repo needs a paid GitHub plan."
+  "verified": "2026-09-15",
+  "provenance": "Set a URL ONLY after it is live and has been opened in a browser, and set `verified` to the date it was checked. README.md previously read 'Live at the URL above' with no URL above it -- a claim with nothing behind it, which this project treats as worse than an absent badge. demo_url was verified end to end on 2026-09-15: the app loads, the frozen schema prompt resolves, and a live NL->SQL question returned the correct per-segment rates for $0.00059 with the guard's LIMIT injected -- which also proves the hardened SnapshotRunner (read_only, enable_external_access=false, lock_configuration, startup self-attack) works on Streamlit's Linux container. dbt_docs_url is HELD BACK on purpose: the site is published and serving at http://sardorbek.codes/olist-customer-intelligence/, but GitHub has not finished provisioning the HTTPS certificate, and an http:// link is not what should ship in a public README. Set it to https://sardorbek.codes/olist-customer-intelligence/ once `gh api repos/sardorbek-suyunov/sardorbek-suyunov.github.io/pages --jq .https_certificate.state` returns a state, then run `make profile && make readme`."
 }
