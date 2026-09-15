@@ -58,7 +58,7 @@ jobs:
       # executing, which catches a mangled line continuation or a typo'd variable
       # -- both of which had already happened and gone unnoticed.
       - name: Makefile recipes expand
-        run: make -n help lint test profile spend dashboard-deploy-check secrets embed embed-reconcile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run
+        run: make -n help lint test profile spend dashboard-deploy-check secrets embed embed-reconcile readme readme-check taxonomy-seed taxonomy-seed-check demo-examples embedding-cost eval-score replay backfill verify-slices load-static validate-bq snapshot enrich enrich-export enrich-restore gemini-check dag-run diagram screenshot
 
       - name: dbt parse
         working-directory: transform
@@ -132,6 +132,15 @@ jobs:
       # noticed in a mart that quietly lost an aspect.
       - name: Assert the aspect seed matches the taxonomy
         run: python scripts/export_taxonomy_seed.py --check
+
+      # The architecture diagram, checked HERE rather than in the unit-test job,
+      # because that job runs before anything builds and the manifest would be
+      # absent -- so the check would report green by never running, which is the
+      # failure mode the diagram test is itself about. The fixture refuses to skip
+      # when CI is set, so if this ever runs without a manifest it fails loudly
+      # instead of passing quietly.
+      - name: Assert the architecture diagram matches the built project
+        run: python -m pytest analytics/tests/test_architecture_diagram.py -q
 
       # Both artifacts the DEPLOYED app depends on and the repo does not: the
       # cached answers and the frozen schema prompt. Neither is reachable from a

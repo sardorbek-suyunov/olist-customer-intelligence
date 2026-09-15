@@ -25,6 +25,7 @@ one -- which a PNG could never support.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -55,7 +56,16 @@ def diagram() -> str:
 @pytest.fixture(scope="module")
 def manifest() -> dict:
     if not MANIFEST.exists():
-        pytest.skip(f"{MANIFEST} not found; run `make build` to check the diagram")
+        # Skipping locally is a convenience -- not everyone has built. Skipping
+        # in CI would be the bug this whole file is about: the unit-test job runs
+        # before any dbt build, so without this the diagram check would report
+        # green by never running, which is a control reporting safe because there
+        # was nothing to check. In CI it is an error, and the dbt-build job runs
+        # it explicitly once a manifest exists.
+        message = f"{MANIFEST} not found; run `make build` to check the diagram"
+        if os.environ.get("CI"):
+            pytest.fail(f"{message}\n(refusing to skip in CI)")
+        pytest.skip(message)
     return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
