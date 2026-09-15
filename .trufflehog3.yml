@@ -64,3 +64,13 @@ exclude:
   - message: Rendered diagram - minified CSS and SVG path data, no credentials
     paths:
       - docs/img/architecture.svg
+
+  # The committed `terraform plan` output. Flagged MEDIUM for High Entropy on
+  # the quota-override resource ids -- `Cg1RdW90YU92ZXJyaWRl` is base64 for the
+  # protobuf label "QuotaOverride", not a credential -- and on the URL-encoded
+  # metric paths beside them. The .tf SOURCE is not excluded, so nothing can
+  # reach this file without appearing in a Terraform diff first, and a plan
+  # redacts values marked sensitive in any case.
+  - message: Generated terraform plan - base64 resource ids and URL-encoded metric paths
+    paths:
+      - infra/terraform/PLAN.txt
