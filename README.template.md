@@ -888,12 +888,16 @@ to, which was not believed until BigQuery was seen rejecting a query with it.
 
 ---
 
-## One failure mode, twelve times
+## One failure mode, fourteen times
 
 Every bug in this project that survived review shares a shape: **a status
 reported by something other than the thing being measured.** Not a wrong answer —
-a correct answer to a question nobody meant to ask. Each one was found by
-executing something, and each was invisible until then.
+a correct answer to a question nobody meant to ask.
+
+Twelve are in the table below, and every one of those was found by executing
+something — each was invisible until then. Two are narrated where they arose
+instead, because they break that rule: the thirteenth could not be executed at
+all, and the fourteenth is the only one that never became a claim.
 
 | The claim | What was actually measured | How it failed |
 |---|---|---|
@@ -936,7 +940,42 @@ check capable of failing. The eval artifact is now named from the shipped prompt
 version and stamped with a fingerprint of the prompt text, so a bump without a
 re-run finds no file and an edit without a bump fails the stamp.
 
-The fix is identical in all twelve cases, and it is not "be more careful":
+### The fourteenth was caught before it was a claim
+
+Diagnosing a stalled Let's Encrypt certificate on `sardorbek.codes`, one
+hypothesis was that GitHub might not be serving the domain over IPv6 — a real
+cause of stuck Pages certificates, and invisible to an IPv4 check. The obvious
+test is one command:
+
+```console
+$ curl -6 -I http://sardorbek.codes/
+curl: (7) Failed to connect to 2606:50c0:8000::153 port 80 after 0 ms
+```
+
+That is a clean, legible failure, and it would have been written up as *GitHub
+is not serving this domain over IPv6*. It measures nothing of the kind. **The
+machine running it has no IPv6 route at all** — `curl -6` cannot even resolve a
+hostname there, and the connection failed in zero milliseconds because there was
+nowhere to send it. The command returns that same output whether or not GitHub
+serves the domain, so it cannot tell apart the two cases it was run to tell
+apart.
+
+It was caught by running the control first — the same command against a host
+known to answer over IPv6, which failed identically. From an external
+IPv6-capable vantage the real answer was the opposite of the hypothesis,
+`Successfully connected to sardorbek.codes on port 80 over IPv6`, and the cause
+was elsewhere: a certificate that had never been requested at all. The API was
+not reporting a pending state, it was omitting the field, and those read the same
+to a caller that only checks whether the state is `issued`.
+
+This is the ceiling script for the third time — a check that reports the same
+thing over a question it is unable to ask. What differs is only the timing. The
+other thirteen were found after they had shipped or after they had been believed.
+This one was caught in the minute before it was written down, and only because
+"run the control first" had by then become a reflex. That is the whole return on
+keeping this list.
+
+The fix is identical in every case, and it is not "be more careful":
 
 - **Count from the table, not from the job** — a partition-pruned `COUNT(*)`.
 - **Compile the macro, never transcribe it** — `dbt compile` renders what the
@@ -966,6 +1005,11 @@ The fix is identical in all twelve cases, and it is not "be more careful":
 - **Ask what your green check is unable to see** — the generated README made a
   whole class of drift impossible and left this one untouched. A control is only
   as good as the question it can fail on.
+- **Run the control before the test** — a probe that cannot fail is not
+  evidence. `curl -6` from a host with no IPv6 route returns one error for "the
+  remote is broken" and for "you have no way to ask"; only a known-good target
+  separates them. Ask what result would prove the probe itself works, and get
+  that result first.
 
 Every control in this repository is an instance of that: the completion marker
 that a slice writes only after every table lands, the parity test that re-derives
