@@ -17,7 +17,7 @@ by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce): raw CSVs
 
 **79 dbt tests · 160 Python tests · full build in ~5s on DuckDB · $0 to run**
 
-### ▶ [Try it live](https://olist-customer-intelligence-zwtfxo5cpowpdzk8ycu4ju.streamlit.app)
+### ▶ [Try it live](https://olist-customer-intelligence-ssz.streamlit.app)
 
 Ask the warehouse a question in English. The agent writes BigQuery SQL, a parser
 refuses anything that is not a single `SELECT` and **injects** the `LIMIT`, and

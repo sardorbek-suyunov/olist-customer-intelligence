@@ -4,7 +4,7 @@
   "customers_total": 96096,
   "dbt_docs_link": "**[Browse the dbt docs](https://sardorbek.codes/olist-customer-intelligence/)** \u2014 every model, column, test and the full lineage graph, generated from the build.",
   "demo_availability": "Live at the URL above, behind the caps.",
-  "demo_callout": "### \u25b6 [Try it live](https://olist-customer-intelligence-zwtfxo5cpowpdzk8ycu4ju.streamlit.app)",
+  "demo_callout": "### \u25b6 [Try it live](https://olist-customer-intelligence-ssz.streamlit.app)",
   "dim_customers_current": 96096,
   "dim_customers_historical": 259,
   "dim_customers_rows": 96355,
