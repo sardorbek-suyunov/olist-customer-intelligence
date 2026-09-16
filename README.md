@@ -114,7 +114,7 @@ Dagster or cron means rewriting one file and nothing else.
 
 ### The model documentation
 
-**[Browse the dbt docs](https://sardorbek.codes/olist-customer-intelligence/)** — every model, column, test and the full lineage graph, generated from the build.
+**[Browse the dbt docs](https://sardorbek-suyunov.github.io/olist-customer-intelligence/)** — every model, column, test and the full lineage graph, generated from the build.
 
 It is generated in the **same CI job that just built and tested the project**,
 not by a workflow that rebuilds independently. A second build would be a second
